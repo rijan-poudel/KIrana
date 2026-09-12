@@ -1,0 +1,66 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./shop.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Product {
+  id               String            @id @default(cuid())
+  name             String
+  category         String
+  barcode          String?           @unique
+  retailPrice      Float
+  wholesalePrice   Float
+  stockQuantity    Float
+  unit             String            // kg, pcs, packet, liter
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  transactionItems TransactionItem[]
+}
+
+model Customer {
+  id             String        @id @default(cuid())
+  name           String
+  phone          String?
+  address        String        // e.g., Gaindakot Ward No...
+  currentBalance Float         @default(0.0) // Total active udharo/credit owed
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  transactions   Transaction[]
+}
+
+model Transaction {
+  id            String            @id @default(cuid())
+  customerId    String?           // Nullable for cash walk-ins
+  type          String            // 'RETAIL' or 'WHOLESALE'
+  totalAmount   Float
+  paidAmount    Float
+  paymentStatus String            // 'PAID', 'UDHARO', 'PARTIAL'
+  createdAt     DateTime          @default(now())
+  customer      Customer?         @relation(fields: [customerId], references: [id])
+  items         TransactionItem[]
+}
+
+model TransactionItem {
+  id            String      @id @default(cuid())
+  transactionId String
+  productId     String
+  quantity      Float
+  unitPrice     Float       // Stores whether retail or wholesale price was applied
+  subtotal      Float
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  product       Product     @relation(fields: [productId], references: [id])
+}
+
+model DeliveryLog {
+  id                String   @id @default(cuid())
+  driverName        String   // e.g., Father
+  destinationClient String
+  itemsSummary      String   // Text breakdown of goods loaded onto the Honda Splendor
+  totalValue        Float
+  status            String   // 'PENDING', 'DELIVERED', 'SETTLED'
+  createdAt         DateTime @default(now())
+}
