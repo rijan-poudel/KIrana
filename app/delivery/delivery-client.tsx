@@ -58,9 +58,9 @@ export default function DeliveryClient({ logs }: { logs: DeliveryLogData[] }) {
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">
       <header>
-        <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Honda Splendor Delivery Tracker</h1>
+        <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Deliveries</h1>
         <p className="mt-1 text-slate-500">
-          Log every wholesale dispatch loaded onto the bike, then track it until the money is settled.
+          Log every wholesale dispatch that leaves the shop, then track it until the money is settled.
         </p>
       </header>
 
@@ -116,7 +116,7 @@ export default function DeliveryClient({ logs }: { logs: DeliveryLogData[] }) {
               <div className="card flex flex-col items-center gap-2 p-10 text-center">
                 <Bike size={32} className="text-slate-300" />
                 <p className="text-sm font-medium text-slate-500">
-                  No dispatches {filter === "ALL" ? "recorded yet" : `in "${filter}"`}. Use the form to log a delivery.
+                  No dispatches {filter === "ALL" ? "recorded yet" : `in "${filter}"`}. Log one from the form.
                 </p>
               </div>
             ) : (
@@ -168,7 +168,7 @@ export default function DeliveryClient({ logs }: { logs: DeliveryLogData[] }) {
 }
 
 function DispatchForm({ onSaved }: { onSaved: (message: string) => void }) {
-  const [driverName, setDriverName] = useState("Father");
+  const [driverName, setDriverName] = useState("");
   const [destinationClient, setDestinationClient] = useState("");
   const [itemsSummary, setItemsSummary] = useState("");
   const [totalValue, setTotalValue] = useState("");

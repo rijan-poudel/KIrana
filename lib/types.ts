@@ -8,6 +8,9 @@ export type ActionResult<T = null> = { ok: true; data: T } | { ok: false; error:
 /** Pricing mode for the billing screen. */
 export type PriceMode = "retail" | "wholesale";
 
+/** A sellable pack size defined on a product ("Carton" ×30 pcs, "gram" ×0.001 kg…). */
+export type ProductUnitData = { id: string; name: string; factor: number };
+
 /** Product fields the billing / inventory screens work with. */
 export type ProductCardData = {
   id: string;
@@ -16,8 +19,10 @@ export type ProductCardData = {
   barcode: string | null;
   retailPrice: number;
   wholesalePrice: number;
-  stockQuantity: number;
-  unit: string;
+  stockQuantity: number; // in base units
+  baseUnit: string;
+  lowStockAt: number;
+  units: ProductUnitData[];
 };
 
 /** Customer fields used across khata / billing screens. */
@@ -29,14 +34,18 @@ export type CustomerOption = {
   currentBalance: number;
 };
 
+export type ProductUnitInput = { name: string; factor: number };
+
 export type ProductInput = {
   name: string;
   category: string;
   barcode: string;
   retailPrice: number;
   wholesalePrice: number;
-  stockQuantity: number;
-  unit: string;
+  baseUnit: string;
+  lowStockAt: number;
+  openingStock: number; // create only; logged as an OPENING stock move
+  units: ProductUnitInput[];
 };
 
 export type CustomerInput = {
@@ -45,12 +54,29 @@ export type CustomerInput = {
   address: string;
 };
 
+export type CheckoutLineInput = {
+  productId: string;
+  quantity: number; // in the chosen unit
+  unitName?: string; // omit = product base unit
+};
+
 export type CheckoutInput = {
   type: "RETAIL" | "WHOLESALE";
   customerId: string | null;
   newCustomer: { name: string; phone: string; address: string } | null;
-  items: { productId: string; quantity: number }[];
+  items: CheckoutLineInput[];
   paidAmount: number;
+};
+
+export type CheckoutLineResult = {
+  productId: string;
+  name: string;
+  quantity: number; // as entered
+  unitName: string; // as billed
+  baseQuantity: number; // in base units
+  baseUnit: string;
+  unitPrice: number; // per base unit
+  subtotal: number;
 };
 
 export type CheckoutResult = {
@@ -60,6 +86,7 @@ export type CheckoutResult = {
   paidAmount: number;
   dueAmount: number;
   paymentStatus: string;
+  lines: CheckoutLineResult[];
 };
 
 export type HistoryEntry = {
@@ -69,7 +96,35 @@ export type HistoryEntry = {
   paidAmount: number;
   paymentStatus: string;
   createdAt: string;
-  items: { productName: string; quantity: number; unit: string; unitPrice: number; subtotal: number }[];
+  items: {
+    productName: string;
+    quantity: number; // base units
+    unitName: string; // billed unit ("" = base)
+    baseUnit: string;
+    unitPrice: number;
+    subtotal: number;
+  }[];
+};
+
+/** Stock-ledger adjustment, entered in a product unit (COUNT = absolute base-unit stock). */
+export type StockAdjustInput = {
+  productId: string;
+  mode: "PURCHASE" | "DAMAGE" | "RETURN" | "ADJUST" | "COUNT";
+  quantity: number;
+  unitName?: string;
+  note?: string;
+};
+
+export type StockMoveData = {
+  id: string;
+  productName: string;
+  baseUnit: string;
+  delta: number; // in base units
+  reason: string;
+  note: string | null;
+  unitName: string | null;
+  quantity: number | null; // as entered, in unitName
+  createdAt: string;
 };
 
 export type DeliveryLogData = {

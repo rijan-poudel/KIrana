@@ -1,11 +1,12 @@
 # Milan Grocery — Offline Shop Management (Gaindakot)
 
-A 100% offline, local desktop-grade web app for a family-run Kirana & Wholesale
-shop in Gaindakot, Nepal. It replaces the paper workflow: daytime counter
-bills, bulk bike deliveries, and the nighttime khata (credit ledger) closing.
+A 100% offline web app for a family-run Kirana & Wholesale shop in Gaindakot,
+Nepal. It replaces the paper workflow: counter bills, wholesale deliveries, and
+the nightly khata (credit ledger) closing.
 
 Runs entirely on one computer. **No internet connection is ever needed** — all
-data lives in a single local SQLite file (`prisma/shop.db`).
+data lives in a single local SQLite file (`prisma/shop.db`). Phones on the same
+WiFi can use it too (see *Using from a phone* below).
 
 ---
 
@@ -22,30 +23,58 @@ npm run dev        # start the app → http://localhost:3000
 
 Daily start afterwards: just `npm run dev` and open http://localhost:3000.
 
-> The app is optimized for a laptop browser in a bright shop: white backgrounds,
-> large touch-friendly buttons, and instant search. The billing search bar also
-> accepts a USB barcode scanner (scan → the item drops straight into the cart).
-
-## The Six Screens
+## The Five Screens
 
 | Screen | Who / When | What it does |
 |---|---|---|
-| **Dashboard** (`/`) | Anyone, anytime | Live cash collected today, udharo added, outstanding khata total, stock value, low-stock alerts, recent bills. |
-| **Counter Billing** (`/billing`) | Mother, at the counter | Tap-to-add product grid + quick staples grid, search/barcode box, **Retail ⇄ Wholesale** price switch, cart with +/− steppers, checkout modal with **Nagad/Cash**, **Partial**, or **Udharo** (instant customer creation). The cart survives accidental page refreshes (localStorage). |
-| **Stock / Inventory** (`/inventory`) | Restocking time | Full add / edit / delete of products with **separate retail and wholesale prices**, unit (kg, pcs, packet, liter…), barcode, and low-stock badges (≤ 10 units). |
+| **Counter** (`/`) | Mother, at the counter — the home screen | One always-focused search/scan bar: type a name, **scan a barcode** (USB scanner types + Enter, or the camera button), and the item drops into the bill. Tappable product grid + top-sellers row for touch. **Retail ⇄ Wholesale** switch, per-line unit picker (pcs / Pack / Carton / Dozen…), checkout with **Cash**, **Partial**, or **Udharo**, cash quick-fill buttons, and a printable 80 mm receipt. The cart survives refreshes; `F2` opens checkout. |
+| **Stock** (`/inventory`) | Restocking time | Product list with live stock in base units plus pack conversions ("≈ 15 Cartons"). **Add Stock** (purchases), **Damage / Return / Correction**, and **Count** (set exact shelf stock) — every change lands in the **stock movements ledger** below. Products define sell units like Carton ×30 or gram ×0.001; per-product low-stock alerts. |
 | **Udharo Khata** (`/khata`) | Credit tracking | Every customer's live outstanding balance, purchase history timeline, and a **Record Payment** modal for when they stop by to settle. |
-| **Delivery Tracker** (`/delivery`) | Father, on dispatch days | Log goods loaded onto the Honda Splendor (client, items summary, value) and move them through **PENDING → DELIVERED → SETTLED**. |
-| **Night Closing** (`/closing`) | End of day | Today's cash from sales, udharo added, credit payments received, total cash in hand, full transaction list — plus one-click database backups. |
+| **Deliveries** (`/delivery`) | Dispatch days | Log goods leaving the shop (client, items summary, value) and move them through **PENDING → DELIVERED → SETTLED**. |
+| **Reports** (`/reports`) | End of day | Today's cash from sales, udharo added, credit payments received, total cash in hand, full transaction list, stock health — plus the **phone QR code** and one-click database backups. |
+
+## Units: base units and packs
+
+Stock is always counted in one **base unit** per product — `pcs`, `kg`, or
+`liter`. Anything else is a **sell unit** with a conversion factor, configured
+per product in Stock → Edit:
+
+- Wai Wai Noodles: base `pcs`, sells in `Pack ×12` and `Carton ×30`
+- Rice (Mansuli): base `kg`, sells in `Bora (25kg) ×25`
+- Mustard Oil: base `liter`, sells in `Tin (15L) ×15`
+
+Selling 1 Carton decrements 30 pcs of stock; prices are per base unit, so the
+math always stays exact. Stock can also be *added* in packs (buy 2 Bora →
++50 kg).
+
+## Barcode support
+
+- **USB / Bluetooth scanner**: the counter search box is always focused — scan
+  and the exact barcode match drops into the cart instantly.
+- **Phone camera**: the "Scan camera" button on the Counter (works on Android
+  and iOS). Camera access requires a secure context, so use HTTPS on the phone
+  (below).
+
+## Using from a phone (same WiFi)
+
+| Command | What you get |
+|---|---|
+| `npm run dev:lan` | App reachable at `http://<PC-IP>:3000` from any phone on the WiFi. Everything works except camera scanning (browsers block cameras on plain HTTP). |
+| `npm run dev:phone` | Same, but with a self-signed **HTTPS** certificate (`--experimental-https`). Accept the one-time certificate warning on the phone and camera scanning works. |
+
+The Reports page shows a QR code with the LAN address — scan it from the phone
+and open the counter there. The cart, stock and khata are shared live with the
+PC (same database).
 
 ## Data & Backups
 
 - All data lives in **`prisma/shop.db`** (single SQLite file).
-- **Night Closing → "Save Backup to backups/ Folder"** writes a timestamped,
+- **Reports → "Save backup to backups/ folder"** writes a timestamped,
   consistent snapshot (`VACUUM INTO`) into **`backups/`** — even mid-sale.
-- **"Download Database Backup"** saves a copy into `backups/` *and* downloads
+- **"Download database backup"** saves a copy into `backups/` *and* downloads
   it to the browser (API route `GET /api/backup`).
-- Copy the whole project folder (or at least `prisma/shop.db` + `backups/`) to a
-  pen drive at least once a week.
+- Copy the whole project folder (or at least `prisma/shop.db` + `backups/`) to
+  a pen drive at least once a week.
 
 **Restore from a backup:** close the app, replace `prisma/shop.db` with a
 backup file (rename it to `shop.db`), start the app again.
@@ -53,17 +82,20 @@ backup file (rename it to `shop.db`), start the app again.
 ## How a Sale Works (under the hood)
 
 The checkout runs in one **Prisma interactive transaction**: create the
-transaction + items, verify and decrement stock for every product, and — for
-udharo/partial — add the remaining due to the customer's `currentBalance`.
-A power cut mid-bill can never leave the books half-written. Recorded khata
-payments are stored as `PAYMENT` transactions so the night closing totals are
-always auditable.
+transaction + items, verify and decrement stock for every line (writing a
+`StockMove` ledger entry), and — for udharo/partial — add the remaining due to
+the customer's `currentBalance`. A power cut mid-bill can never leave the books
+half-written. Purchases, damage, corrections and counts go through the same
+ledger, so Stock always reconciles. Recorded khata payments are stored as
+`PAYMENT` transactions so the day report totals are always auditable.
 
 ## Scripts
 
 | Command | Purpose |
 |---|---|
 | `npm run dev` | Start the app for daily use (http://localhost:3000) |
+| `npm run dev:lan` | Start reachable from other devices on the WiFi (HTTP) |
+| `npm run dev:phone` | Start with HTTPS so phone camera scanning works |
 | `npm run build` && `npm start` | Optimized production mode (slightly faster pages) |
 | `npm run db:push` | Apply schema changes to the database |
 | `npm run db:seed` | Add the 20 staple starter products (skips if any exist) |
@@ -78,11 +110,14 @@ always auditable.
 - **Slow first page load in dev** → normal; Next.js compiles each screen once.
 - **Two copies of the app running at once** → don't. SQLite allows one writer;
   close one instance before using the other.
+- **Camera button says the camera is unavailable** → you are on plain HTTP.
+  Start with `npm run dev:phone` and open the HTTPS address on the phone.
 - **Browser shows an old price/stock** → press F5 (the cart is never lost on
   refresh — only a completed sale clears it).
 
 ## Tech Stack
 
-Next.js 15 (App Router) · React 19 · TypeScript · Tailwind CSS · Prisma 6 ·
-SQLite · lucide-react icons. Server Actions for all mutations. Zero runtime
-network dependencies (system fonts only).
+Next.js 15 (App Router) · React 19 · TypeScript · Tailwind CSS v4 · shadcn/ui
+(Base UI) · Prisma 6 · SQLite · lucide-react icons · html5-qrcode · qrcode.
+Server Actions for all mutations. Zero runtime network dependencies (system
+fonts only).

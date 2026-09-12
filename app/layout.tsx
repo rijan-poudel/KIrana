@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import Sidebar from "@/components/sidebar";
+import { Toaster } from "@/components/ui/sonner";
 import { APP_LOCATION, APP_NAME } from "@/lib/constants";
 
 export const metadata: Metadata = {

@@ -110,6 +110,25 @@
   }
 }
 
+/* 80mm-style thermal receipt: when printing, only the receipt sheet shows. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #receipt-print,
+  #receipt-print * {
+    visibility: visible;
+  }
+  #receipt-print {
+    position: fixed;
+    inset: 0 auto auto 0;
+    width: 76mm;
+    padding: 4mm 2mm;
+    color: black;
+    background: white;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Transitional app classes — pages migrate to shadcn components and   */
 /* this block shrinks until it can be deleted entirely.                */

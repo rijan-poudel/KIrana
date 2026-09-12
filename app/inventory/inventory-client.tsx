@@ -1,389 +1,645 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Loader2, Package, PackagePlus, Pencil, Search, Trash2, X } from "lucide-react";
-import type { ProductCardData, ProductInput } from "@/lib/types";
-import { formatNPR, formatQuantity } from "@/lib/format";
-import { LOW_STOCK_THRESHOLD, UNITS } from "@/lib/constants";
-import { createProduct, deleteProduct, updateProduct } from "@/actions/shop-actions";
+import { ArrowDownRight, ArrowUpRight, Loader2, PackagePlus, Pencil, ScanBarcode, Search, SlidersHorizontal, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { BASE_UNITS, UNIT_PRESETS } from "@/lib/constants";
+import { formatDateTime, formatNPR, formatQuantity } from "@/lib/format";
+import { cn } from "@/lib/utils";
+import { adjustStock, createProduct, deleteProduct, updateProduct } from "@/actions/shop-actions";
+import type { ProductCardData, StockMoveData } from "@/lib/types";
 
-type Banner = { kind: "success" | "error"; message: string } | null;
+type UnitsDraft = { name: string; factor: string };
 
-export default function InventoryClient({ products }: { products: ProductCardData[] }) {
+const REASON_BADGE: Record<string, string> = {
+  PURCHASE: "badge-emerald",
+  OPENING: "badge-emerald",
+  SALE: "badge-blue",
+  DAMAGE: "badge-red",
+  RETURN: "badge-amber",
+  ADJUST: "badge-blue",
+  COUNT: "badge-slate",
+};
+
+export default function InventoryClient({ products, moves }: { products: ProductCardData[]; moves: StockMoveData[] }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<ProductCardData | null>(null);
-  const [deleting, setDeleting] = useState<ProductCardData | null>(null);
-  const [banner, setBanner] = useState<Banner>(null);
+  const [formTarget, setFormTarget] = useState<"new" | ProductCardData | null>(null);
+  const [stockTarget, setStockTarget] = useState<ProductCardData | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ProductCardData | null>(null);
+  const [moveFilter, setMoveFilter] = useState("all");
 
   const term = query.trim().toLowerCase();
-  const filtered = useMemo(() => {
-    if (!term) return products;
-    return products.filter(
-      (p) =>
-        p.name.toLowerCase().includes(term) ||
-        p.category.toLowerCase().includes(term) ||
-        (p.barcode ?? "").toLowerCase().includes(term),
-    );
-  }, [products, term]);
+  const filtered = useMemo(
+    () =>
+      products.filter(
+        (p) =>
+          p.name.toLowerCase().includes(term) ||
+          p.category.toLowerCase().includes(term) ||
+          (p.barcode ?? "").toLowerCase().includes(term),
+      ),
+    [products, term],
+  );
 
-  const lowCount = products.filter((p) => p.stockQuantity <= LOW_STOCK_THRESHOLD).length;
-
-  function openCreate() {
-    setEditing(null);
-    setFormOpen(true);
-  }
-
-  function openEdit(product: ProductCardData) {
-    setEditing(product);
-    setFormOpen(true);
-  }
-
-  function handleSaved(message: string) {
-    setFormOpen(false);
-    setBanner({ kind: "success", message });
-    router.refresh();
-  }
+  const lowCount = products.filter((p) => p.stockQuantity <= p.lowStockAt).length;
+  const filteredMoves = moveFilter === "all" ? moves : moves.filter((m) => m.productName === moveFilter);
 
   async function handleDelete() {
-    if (!deleting) return;
-    const response = await deleteProduct(deleting.id);
+    if (!deleteTarget) return;
+    const response = await deleteProduct(deleteTarget.id);
     if (response.ok) {
-      setDeleting(null);
-      setBanner({ kind: "success", message: `${deleting.name} removed from inventory.` });
+      toast.success(`${deleteTarget.name} deleted.`);
+      setDeleteTarget(null);
       router.refresh();
     } else {
-      setDeleting(null);
-      setBanner({ kind: "error", message: response.error });
+      toast.error(response.error);
     }
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+    <div className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-8">
+      <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Stock / Inventory</h1>
-          <p className="mt-1 text-slate-500">
-            {products.length} products • {lowCount} low on stock (alert at ≤ {LOW_STOCK_THRESHOLD} units)
+          <h1 className="text-2xl font-bold text-foreground md:text-3xl">Stock</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {products.length} products • {lowCount} low on stock. Purchases, damage and counts are all logged below.
           </p>
         </div>
-        <button type="button" onClick={openCreate} className="btn-primary h-12 text-base">
-          <PackagePlus size={18} /> Add Product
-        </button>
+        <Button size="lg" onClick={() => setFormTarget("new")}>
+          <PackagePlus /> Add product
+        </Button>
       </header>
 
-      {banner && (
-        <div
-          className={`mt-4 flex items-start justify-between gap-3 rounded-lg border px-4 py-3 text-sm font-medium ${
-            banner.kind === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-              : "border-red-200 bg-red-50 text-red-700"
-          }`}
-        >
-          <span className="flex items-start gap-2">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-            {banner.message}
-          </span>
-          <button type="button" onClick={() => setBanner(null)} aria-label="Dismiss message" className="shrink-0">
-            <X size={16} />
-          </button>
-        </div>
-      )}
-
-      <div className="relative mt-5">
-        <Search size={18} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          type="text"
-          placeholder="Search by name, category or barcode…"
-          className="input pl-10"
-        />
+      <div className="relative">
+        <Search size={18} className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search products…" className="pl-10" />
       </div>
 
-      <div className="card mt-4 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
-                <th className="px-4 py-3 font-semibold">Product</th>
-                <th className="px-4 py-3 font-semibold">Category</th>
-                <th className="px-4 py-3 font-semibold">Stock</th>
-                <th className="px-4 py-3 text-right font-semibold">Retail Price</th>
-                <th className="px-4 py-3 text-right font-semibold">Wholesale Price</th>
-                <th className="px-4 py-3 text-right font-semibold">Actions</th>
+      <div className="card mt-4 overflow-x-auto">
+        <table className="w-full min-w-[820px] text-left text-sm">
+          <thead>
+            <tr className="border-b border-border bg-muted/50 text-xs tracking-wide text-muted-foreground uppercase">
+              <th className="px-4 py-3 font-semibold">Product</th>
+              <th className="px-4 py-3 font-semibold">Category</th>
+              <th className="px-4 py-3 font-semibold">In stock</th>
+              <th className="px-4 py-3 text-right font-semibold">Retail</th>
+              <th className="px-4 py-3 text-right font-semibold">Wholesale</th>
+              <th className="px-4 py-3 text-right font-semibold">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                  {products.length === 0 ? "No products yet — add the first one." : "No products match the search."}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
-                    <Package size={28} className="mx-auto mb-2 text-slate-300" />
-                    No products found. {products.length === 0 ? "Add your first product to get started." : ""}
+            )}
+            {filtered.map((p) => {
+              const pack = [...p.units]
+                .sort((a, b) => b.factor - a.factor)
+                .find((u) => u.factor > 1 && p.stockQuantity >= u.factor);
+              const out = p.stockQuantity <= 0;
+              const low = !out && p.stockQuantity <= p.lowStockAt;
+              return (
+                <tr key={p.id} className="border-b border-border/40 last:border-0">
+                  <td className="px-4 py-3">
+                    <p className="font-semibold text-foreground">{p.name}</p>
+                    {p.barcode && <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">{p.barcode}</p>}
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">{p.category}</td>
+                  <td className="px-4 py-3">
+                    <span className={out ? "badge-red" : low ? "badge-amber" : "badge-emerald"}>
+                      {formatQuantity(p.stockQuantity)} {p.baseUnit}
+                    </span>
+                    {pack && (
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        ≈ {formatQuantity(Math.floor((p.stockQuantity / pack.factor) * 10) / 10)} {pack.name}
+                      </p>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right whitespace-nowrap">{formatNPR(p.retailPrice)}</td>
+                  <td className="px-4 py-3 text-right whitespace-nowrap">{formatNPR(p.wholesalePrice)}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex justify-end gap-1">
+                      <Button variant="outline" size="sm" onClick={() => setStockTarget(p)}>
+                        <PackagePlus /> Stock
+                      </Button>
+                      <Button variant="ghost" size="icon-sm" aria-label={`Edit ${p.name}`} onClick={() => setFormTarget(p)}>
+                        <Pencil />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Delete ${p.name}`}
+                        className="hover:text-red-600"
+                        onClick={() => setDeleteTarget(p)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
                   </td>
                 </tr>
-              ) : (
-                filtered.map((p) => {
-                  const out = p.stockQuantity <= 0;
-                  const low = !out && p.stockQuantity <= LOW_STOCK_THRESHOLD;
-                  return (
-                    <tr key={p.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
-                      <td className="px-4 py-3">
-                        <p className="font-semibold text-slate-900">{p.name}</p>
-                        {p.barcode && <p className="font-mono text-xs text-slate-400">{p.barcode}</p>}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">{p.category}</td>
-                      <td className="px-4 py-3">
-                        {out ? (
-                          <span className="badge-red">Out of stock</span>
-                        ) : low ? (
-                          <span className="badge-amber">Low — {formatQuantity(p.stockQuantity)} {p.unit}</span>
-                        ) : (
-                          <span className="badge-emerald">
-                            {formatQuantity(p.stockQuantity)} {p.unit}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatNPR(p.retailPrice)}</td>
-                      <td className="px-4 py-3 text-right font-semibold text-slate-900">{formatNPR(p.wholesalePrice)}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => openEdit(p)}
-                            aria-label={`Edit ${p.name}`}
-                            className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100"
-                          >
-                            <Pencil size={15} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeleting(p)}
-                            aria-label={`Delete ${p.name}`}
-                            className="flex h-9 w-9 items-center justify-center rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
-      {formOpen && (
-        <ProductFormModal product={editing} onClose={() => setFormOpen(false)} onSaved={handleSaved} />
-      )}
-
-      {deleting && (
-        <div className="modal-overlay" onClick={() => setDeleting(null)} role="dialog" aria-modal="true">
-          <div className="modal-panel max-w-md" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-xl font-bold text-slate-900">Delete product?</h2>
-            <p className="mt-2 text-sm text-slate-600">
-              <strong>{deleting.name}</strong> will be removed from the inventory. This cannot be undone. Products with
-              past sales history cannot be deleted — set their stock to 0 instead.
-            </p>
-            <div className="mt-5 flex gap-2">
-              <button type="button" onClick={() => setDeleting(null)} className="btn-secondary flex-1">
-                Cancel
-              </button>
-              <button type="button" onClick={handleDelete} className="btn-danger flex-1">
-                <Trash2 size={16} /> Delete
-              </button>
-            </div>
+      {/* Stock movements ledger */}
+      <section className="card mt-6 overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+          <div>
+            <h2 className="text-lg font-bold text-foreground">Recent stock movements</h2>
+            <p className="text-xs text-muted-foreground">Every purchase, sale, damage and count — newest first.</p>
           </div>
+          <Select value={moveFilter} onValueChange={(v) => v && setMoveFilter(v)}>
+            <SelectTrigger className="w-[200px]" aria-label="Filter movements by product">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All products</SelectItem>
+              {products.map((p) => (
+                <SelectItem key={p.id} value={p.name}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-      )}
+        {filteredMoves.length === 0 ? (
+          <p className="px-5 py-6 text-sm text-muted-foreground">No stock movements yet.</p>
+        ) : (
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <tbody>
+              {filteredMoves.map((m) => (
+                <tr key={m.id} className="border-b border-border/40 last:border-0">
+                  <td className="px-5 py-2.5 whitespace-nowrap text-muted-foreground">{formatDateTime(m.createdAt)}</td>
+                  <td className="px-5 py-2.5 font-medium text-foreground">{m.productName}</td>
+                  <td className="px-5 py-2.5">
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1 font-bold",
+                        m.delta >= 0 ? "text-emerald-700" : "text-red-600",
+                      )}
+                    >
+                      {m.delta >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                      {formatQuantity(Math.abs(m.delta))} {m.baseUnit}
+                    </span>
+                  </td>
+                  <td className="px-5 py-2.5 text-muted-foreground">
+                    {m.quantity !== null && m.unitName && m.unitName !== m.baseUnit
+                      ? `${formatQuantity(m.quantity)} ${m.unitName}`
+                      : "—"}
+                  </td>
+                  <td className="px-5 py-2.5">
+                    <span className={REASON_BADGE[m.reason] ?? "badge-slate"}>{m.reason}</span>
+                  </td>
+                  <td className="max-w-[200px] truncate px-5 py-2.5 text-muted-foreground">{m.note ?? ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      {formTarget && <ProductFormDialog product={formTarget === "new" ? null : formTarget} onClose={() => setFormTarget(null)} />}
+
+      {stockTarget && <StockDialog product={stockTarget} onClose={() => setStockTarget(null)} />}
+
+      <Dialog open={!!deleteTarget} onOpenChange={(next) => !next && setDeleteTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete {deleteTarget?.name}?</DialogTitle>
+            <DialogDescription>
+              Products with sales history cannot be deleted — their past bills stay intact. Stock records for this
+              product will be removed with it.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete}>
+              <Trash2 /> Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function ProductFormModal({
-  product,
-  onClose,
-  onSaved,
-}: {
-  product: ProductCardData | null;
-  onClose: () => void;
-  onSaved: (message: string) => void;
-}) {
-  const isEdit = product !== null;
+/* ------------------------------------------------------------------ */
+
+function ProductFormDialog({ product, onClose }: { product: ProductCardData | null; onClose: () => void }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
   const [name, setName] = useState(product?.name ?? "");
   const [category, setCategory] = useState(product?.category ?? "");
   const [barcode, setBarcode] = useState(product?.barcode ?? "");
-  const [retailPrice, setRetailPrice] = useState(product ? String(product.retailPrice) : "");
-  const [wholesalePrice, setWholesalePrice] = useState(product ? String(product.wholesalePrice) : "");
-  const [stockQuantity, setStockQuantity] = useState(product ? String(product.stockQuantity) : "");
-  const [unit, setUnit] = useState(product?.unit ?? "pcs");
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [baseUnit, setBaseUnit] = useState(product?.baseUnit ?? "pcs");
+  const [lowStockAt, setLowStockAt] = useState(String(product?.lowStockAt ?? 10));
+  const [retailPrice, setRetailPrice] = useState(String(product?.retailPrice ?? ""));
+  const [wholesalePrice, setWholesalePrice] = useState(String(product?.wholesalePrice ?? ""));
+  const [openingStock, setOpeningStock] = useState("0");
+  const [units, setUnits] = useState<UnitsDraft[]>(
+    product?.units.map((u) => ({ name: u.name, factor: String(u.factor) })) ?? [],
+  );
 
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    setError(null);
-    const input: ProductInput = {
+  const presets = UNIT_PRESETS[baseUnit] ?? [];
+
+  function addPreset(preset?: { name: string; factor: number }) {
+    setUnits((prev) => {
+      if (preset) {
+        if (prev.some((u) => u.name.toLowerCase() === preset.name.toLowerCase())) return prev;
+        return [...prev, { name: preset.name, factor: String(preset.factor) }];
+      }
+      return [...prev, { name: "", factor: "" }];
+    });
+  }
+
+  async function submit() {
+    setBusy(true);
+    const input = {
       name,
       category,
       barcode,
-      retailPrice: Number.parseFloat(retailPrice),
-      wholesalePrice: Number.parseFloat(wholesalePrice),
-      stockQuantity: Number.parseFloat(stockQuantity),
-      unit,
+      baseUnit,
+      lowStockAt: Number(lowStockAt) || 0,
+      retailPrice: Number(retailPrice) || 0,
+      wholesalePrice: Number(wholesalePrice) || 0,
+      openingStock: Number(openingStock) || 0,
+      units: units
+        .filter((u) => u.name.trim())
+        .map((u) => ({ name: u.name.trim(), factor: Number(u.factor) })),
     };
-    setSubmitting(true);
-    const response = isEdit ? await updateProduct(product.id, input) : await createProduct(input);
-    setSubmitting(false);
-    if (response.ok) onSaved(isEdit ? `${input.name.trim()} updated.` : `${input.name.trim()} added to inventory.`);
-    else setError(response.error);
+    const response = product ? await updateProduct(product.id, input) : await createProduct(input);
+    setBusy(false);
+    if (response.ok) {
+      toast.success(product ? `${input.name} updated.` : `${input.name} added to stock.`);
+      router.refresh();
+      onClose();
+    } else {
+      toast.error(response.error);
+    }
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Product form">
-      <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between">
-          <h2 className="text-xl font-bold text-slate-900">{isEdit ? "Edit Product" : "Add Product"}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close form"
-            className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-          >
-            <X size={20} />
-          </button>
-        </div>
+    <Dialog open onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{product ? `Edit ${product.name}` : "Add product"}</DialogTitle>
+          <DialogDescription>
+            Stock is counted in one base unit; pack sizes like Cartons convert automatically when selling.
+          </DialogDescription>
+        </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="mt-4 space-y-3">
-          <div>
-            <label className="label" htmlFor="p-name">
-              Product name *
-            </label>
-            <input
-              id="p-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g., Rice (Mansuli)"
-              className="input"
-              required
-            />
-          </div>
-
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+          className="space-y-4"
+        >
           <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <Label htmlFor="p-name">Name *</Label>
+              <Input id="p-name" value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
+            </div>
             <div>
-              <label className="label" htmlFor="p-category">
-                Category
-              </label>
-              <input
+              <Label htmlFor="p-category">Category</Label>
+              <Input
                 id="p-category"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                placeholder="e.g., Staples"
-                className="input"
+                placeholder="Staples, Snacks…"
               />
             </div>
             <div>
-              <label className="label" htmlFor="p-unit">
-                Unit *
-              </label>
-              <select id="p-unit" value={unit} onChange={(e) => setUnit(e.target.value)} className="input">
-                {UNITS.map((u) => (
-                  <option key={u} value={u}>
-                    {u}
-                  </option>
-                ))}
-              </select>
+              <Label htmlFor="p-barcode">
+                <span className="inline-flex items-center gap-1">
+                  <ScanBarcode size={13} /> Barcode
+                </span>
+              </Label>
+              <Input
+                id="p-barcode"
+                value={barcode}
+                onChange={(e) => setBarcode(e.target.value)}
+                placeholder="Scan or type…"
+              />
             </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label" htmlFor="p-retail">
-                Retail price (Rs.) *
-              </label>
-              <input
+              <Label>Base unit</Label>
+              <Select value={baseUnit} onValueChange={(v) => v && setBaseUnit(v)}>
+                <SelectTrigger className="w-full" aria-label="Base unit">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {BASE_UNITS.map((u) => (
+                    <SelectItem key={u} value={u}>
+                      {u}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="p-low">Low-stock alert ({baseUnit})</Label>
+              <Input
+                id="p-low"
+                type="number"
+                min={0}
+                step="any"
+                value={lowStockAt}
+                onChange={(e) => setLowStockAt(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="p-retail">Retail price / {baseUnit} *</Label>
+              <Input
                 id="p-retail"
                 type="number"
-                inputMode="decimal"
                 min={0}
                 step="0.01"
                 value={retailPrice}
                 onChange={(e) => setRetailPrice(e.target.value)}
-                className="input"
                 required
               />
             </div>
             <div>
-              <label className="label" htmlFor="p-wholesale">
-                Wholesale price (Rs.) *
-              </label>
-              <input
+              <Label htmlFor="p-wholesale">Wholesale price / {baseUnit} *</Label>
+              <Input
                 id="p-wholesale"
                 type="number"
-                inputMode="decimal"
                 min={0}
                 step="0.01"
                 value={wholesalePrice}
                 onChange={(e) => setWholesalePrice(e.target.value)}
-                className="input"
                 required
               />
             </div>
+            {!product && (
+              <div className="col-span-2">
+                <Label htmlFor="p-opening">Opening stock ({baseUnit})</Label>
+                <Input
+                  id="p-opening"
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={openingStock}
+                  onChange={(e) => setOpeningStock(e.target.value)}
+                />
+              </div>
+            )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-lg border border-border p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label className="mb-0">Sell units (packs &amp; fractions)</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {presets.map((preset) => (
+                  <Button key={preset.name} type="button" variant="outline" size="xs" onClick={() => addPreset(preset)}>
+                    + {preset.name}
+                  </Button>
+                ))}
+                <Button type="button" variant="ghost" size="xs" onClick={() => addPreset()}>
+                  + custom
+                </Button>
+              </div>
+            </div>
+            {units.length === 0 ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Optional. Examples: a Carton of 30 pcs, a Pack of 10 pcs, or gram = 0.001 for a kg product.
+              </p>
+            ) : (
+              <div className="mt-2 space-y-2">
+                {units.map((u, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <Input
+                      value={u.name}
+                      onChange={(e) =>
+                        setUnits((prev) => prev.map((x, i) => (i === index ? { ...x, name: e.target.value } : x)))
+                      }
+                      placeholder="Name (Carton)"
+                      className="flex-1"
+                    />
+                    <span className="text-xs whitespace-nowrap text-muted-foreground">=</span>
+                    <Input
+                      value={u.factor}
+                      onChange={(e) =>
+                        setUnits((prev) => prev.map((x, i) => (i === index ? { ...x, factor: e.target.value } : x)))
+                      }
+                      placeholder={`× ${baseUnit}`}
+                      type="number"
+                      step="any"
+                      min={0}
+                      className="w-24"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Remove unit ${u.name || index + 1}`}
+                      onClick={() => setUnits((prev) => prev.filter((_, i) => i !== index))}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy ? <Loader2 className="animate-spin" /> : null}
+              {product ? "Save changes" : "Add product"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+const STOCK_MODES = [
+  { value: "PURCHASE", label: "Purchase (stock in)" },
+  { value: "DAMAGE", label: "Damage / wastage (out)" },
+  { value: "RETURN", label: "Return to supplier (out)" },
+  { value: "ADJUST", label: "Correction (+/−)" },
+  { value: "COUNT", label: "Count — set exact stock" },
+] as const;
+
+function StockDialog({ product, onClose }: { product: ProductCardData; onClose: () => void }) {
+  const router = useRouter();
+  const [mode, setMode] = useState<string>("PURCHASE");
+  const [unitName, setUnitName] = useState(product.baseUnit);
+  const [quantity, setQuantity] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const options = [
+    { name: product.baseUnit, factor: 1 },
+    ...product.units.map((u) => ({ name: u.name, factor: u.factor })),
+  ];
+  const factor = options.find((o) => o.name === unitName)?.factor ?? 1;
+  const qty = Number(quantity);
+
+  const preview = useMemo(() => {
+    if (!Number.isFinite(qty) || quantity === "") return null;
+    if (mode === "COUNT") return `${formatQuantity(qty)} ${product.baseUnit} on shelf`;
+    const delta = Math.round(qty * factor * 100) / 100;
+    const signed = mode === "DAMAGE" || mode === "RETURN" ? -Math.abs(delta) : delta;
+    return `${signed >= 0 ? "+" : "−"}${formatQuantity(Math.abs(signed))} ${product.baseUnit}`;
+  }, [qty, quantity, mode, factor, product.baseUnit]);
+
+  async function submit() {
+    setBusy(true);
+    const response = await adjustStock({
+      productId: product.id,
+      mode: mode as "PURCHASE" | "DAMAGE" | "RETURN" | "ADJUST" | "COUNT",
+      quantity: qty,
+      unitName: mode === "COUNT" ? product.baseUnit : unitName,
+      note,
+    });
+    setBusy(false);
+    if (response.ok) {
+      toast.success(`${product.name}: now ${formatQuantity(response.data.newStock)} ${product.baseUnit} in stock.`);
+      router.refresh();
+      onClose();
+    } else {
+      toast.error(response.error);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <SlidersHorizontal size={18} /> Stock — {product.name}
+          </DialogTitle>
+          <DialogDescription>
+            Currently {formatQuantity(product.stockQuantity)} {product.baseUnit} on the shelf.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+          className="space-y-4"
+        >
+          <div>
+            <Label>Type</Label>
+            <Select
+              value={mode}
+              onValueChange={(v) => {
+                if (!v) return;
+                setMode(v);
+                setUnitName(product.baseUnit);
+              }}
+            >
+              <SelectTrigger className="w-full" aria-label="Stock movement type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STOCK_MODES.map((m) => (
+                  <SelectItem key={m.value} value={m.value}>
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {mode === "COUNT" ? (
             <div>
-              <label className="label" htmlFor="p-stock">
-                Stock quantity *
-              </label>
-              <input
-                id="p-stock"
+              <Label htmlFor="s-qty">Counted stock ({product.baseUnit})</Label>
+              <Input
+                id="s-qty"
                 type="number"
-                inputMode="decimal"
-                min={0}
                 step="any"
-                value={stockQuantity}
-                onChange={(e) => setStockQuantity(e.target.value)}
-                className="input"
+                min={0}
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                autoFocus
                 required
               />
             </div>
-            <div>
-              <label className="label" htmlFor="p-barcode">
-                Barcode (optional)
-              </label>
-              <input
-                id="p-barcode"
-                value={barcode}
-                onChange={(e) => setBarcode(e.target.value)}
-                placeholder="Scan or type code"
-                className="input font-mono"
-              />
-            </div>
-          </div>
-
-          {error && (
-            <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700">
-              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-              {error}
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="s-qty">Quantity</Label>
+                <Input
+                  id="s-qty"
+                  type="number"
+                  step="any"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  autoFocus
+                  required
+                />
+              </div>
+              <div>
+                <Label>Unit</Label>
+                <Select value={unitName} onValueChange={(v) => v && setUnitName(v)}>
+                  <SelectTrigger className="w-full" aria-label="Unit">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {options.map((o) => (
+                      <SelectItem key={o.name} value={o.name}>
+                        {o.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           )}
 
-          <div className="flex gap-2 pt-1">
-            <button type="button" onClick={onClose} className="btn-secondary flex-1">
-              Cancel
-            </button>
-            <button type="submit" disabled={submitting} className="btn-primary flex-1">
-              {submitting ? <Loader2 size={18} className="animate-spin" /> : null}
-              {isEdit ? "Save Changes" : "Add Product"}
-            </button>
+          {preview && (
+            <p className="rounded-lg bg-muted px-3 py-2 text-sm font-medium text-muted-foreground">
+              Effect: {preview}
+            </p>
+          )}
+
+          <div>
+            <Label htmlFor="s-note">Note (supplier, reason…)</Label>
+            <Input id="s-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional" />
           </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy ? <Loader2 className="animate-spin" /> : null} Record
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

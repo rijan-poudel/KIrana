@@ -12,13 +12,41 @@ model Product {
   name             String
   category         String
   barcode          String?           @unique
-  retailPrice      Float
-  wholesalePrice   Float
-  stockQuantity    Float
-  unit             String            // kg, pcs, packet, liter
+  retailPrice      Float             // price per base unit
+  wholesalePrice   Float             // price per base unit
+  stockQuantity    Float             // always tracked in base units
+  baseUnit         String            @default("pcs") // pcs, kg, liter — the unit stock is counted in
+  lowStockAt       Float             @default(10) // per-product low-stock threshold (base units)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
+  units            ProductUnit[]
   transactionItems TransactionItem[]
+  stockMoves       StockMove[]
+}
+
+/// A sellable pack size above/below the base unit: "Carton" ×30 pcs, "Dozen" ×12, "gram" ×0.001…
+model ProductUnit {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name      String // Carton, Pack, Dozen, Bora, gram…
+  factor    Float // base units contained in 1 of this unit
+  @@unique([productId, name])
+}
+
+/// Append-only stock ledger: every gain or loss of stock gets one row.
+model StockMove {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  delta     Float // change in BASE units (+ bought, − sold/damaged)
+  reason    String // PURCHASE, SALE, DAMAGE, RETURN, ADJUST, COUNT, OPENING
+  note      String?
+  unitName  String? // unit the quantity was entered in, for display
+  quantity  Float? // amount as entered in unitName
+  refType   String? // TRANSACTION, DELIVERY
+  refId     String?
+  createdAt DateTime @default(now())
 }
 
 model Customer {
@@ -48,8 +76,9 @@ model TransactionItem {
   id            String      @id @default(cuid())
   transactionId String
   productId     String
-  quantity      Float
-  unitPrice     Float       // Stores whether retail or wholesale price was applied
+  quantity      Float       // in BASE units
+  unitName      String      @default("") // unit the customer was billed in (display); "" = product base unit
+  unitPrice     Float       // price per base unit at sale time
   subtotal      Float
   transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
   product       Product     @relation(fields: [productId], references: [id])
@@ -57,9 +86,9 @@ model TransactionItem {
 
 model DeliveryLog {
   id                String   @id @default(cuid())
-  driverName        String   // e.g., Father
+  driverName        String
   destinationClient String
-  itemsSummary      String   // Text breakdown of goods loaded onto the Honda Splendor
+  itemsSummary      String
   totalValue        Float
   status            String   // 'PENDING', 'DELIVERED', 'SETTLED'
   createdAt         DateTime @default(now())

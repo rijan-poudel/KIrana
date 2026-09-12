@@ -300,8 +300,8 @@ function HistoryModal({ customer, onClose }: { customer: CustomerOption; onClose
                       <ul className="mt-2 space-y-0.5">
                         {entry.items.map((item, index) => (
                           <li key={index} className="text-xs text-slate-600">
-                            {formatQuantity(item.quantity)} {item.unit} × {item.productName} @ {formatNPR(item.unitPrice)} ={" "}
-                            <span className="font-semibold">{formatNPR(item.subtotal)}</span>
+                            {formatQuantity(item.quantity)} {item.unitName || item.baseUnit} × {item.productName} @{" "}
+                            {formatNPR(item.unitPrice)} = <span className="font-semibold">{formatNPR(item.subtotal)}</span>
                           </li>
                         ))}
                       </ul>
