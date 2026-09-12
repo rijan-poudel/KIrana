@@ -1,4 +1,6 @@
-/** Small server-side helpers shared by pages and server actions. */
+/** Small shared helpers used by pages, client components and server actions. */
+
+export { cn } from "cn";
 
 /** Local midnight of today — the boundary for all "today" summaries. */
 export function startOfToday(): Date {

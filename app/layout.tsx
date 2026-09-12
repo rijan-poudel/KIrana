@@ -19,7 +19,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="bg-slate-50 text-slate-900 antialiased">
+      <body className="antialiased">
         <div className="min-h-screen md:flex">
           <Sidebar />
           <main className="min-w-0 flex-1">{children}</main>
