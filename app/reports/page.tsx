@@ -2,8 +2,9 @@ import { headers } from "next/headers";
 import os from "os";
 import QRCode from "qrcode";
 import prisma from "@/lib/prisma";
+import { Badge } from "@/components/ui/badge";
 import { listBackups } from "@/lib/backup";
-import { formatDateTime, formatQuantity, round2 } from "@/lib/format";
+import { formatDateTime, formatNPR, formatQuantity, round2 } from "@/lib/format";
 import { startOfToday } from "@/lib/utils";
 import BackupPanel from "./backup-panel";
 
@@ -141,11 +142,11 @@ export default async function ReportsPage() {
           <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-lg border border-border px-3 py-2.5">
               <p className="text-xs text-muted-foreground">Outstanding khata</p>
-              <p className="mt-0.5 text-lg font-bold text-red-600">{formatQuantity(outstandingTotal)} Rs.</p>
+              <p className="mt-0.5 text-lg font-bold text-red-600">{formatNPR(outstandingTotal)}</p>
             </div>
             <div className="rounded-lg border border-border px-3 py-2.5">
               <p className="text-xs text-muted-foreground">Stock value (retail)</p>
-              <p className="mt-0.5 text-lg font-bold">{formatQuantity(stockValue)} Rs.</p>
+              <p className="mt-0.5 text-lg font-bold">{formatNPR(stockValue)}</p>
             </div>
           </div>
           <div className="mt-3">
@@ -161,9 +162,9 @@ export default async function ReportsPage() {
                 lowStock.slice(0, 6).map((p) => (
                   <div key={p.id} className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2">
                     <span className="text-sm font-semibold text-foreground">{p.name}</span>
-                    <span className={p.stockQuantity <= 0 ? "badge-red" : "badge-amber"}>
+                    <Badge variant={p.stockQuantity <= 0 ? "destructive" : "warning"}>
                       {formatQuantity(p.stockQuantity)} {p.baseUnit} left
-                    </span>
+                    </Badge>
                   </div>
                 ))
               )}
@@ -212,9 +213,13 @@ export default async function ReportsPage() {
                   <tr key={row.id} className="border-b border-border/40 last:border-0">
                     <td className="px-5 py-2.5 whitespace-nowrap text-muted-foreground">{formatDateTime(row.time)}</td>
                     <td className="px-5 py-2.5">
-                      <span className={row.typeLabel === "PAYMENT" ? "badge-emerald" : row.typeLabel === "WHOLESALE" ? "badge-blue" : "badge-slate"}>
+                      <Badge
+                        variant={
+                          row.typeLabel === "PAYMENT" ? "success" : row.typeLabel === "WHOLESALE" ? "info" : "muted"
+                        }
+                      >
                         {row.typeLabel}
-                      </span>
+                      </Badge>
                     </td>
                     <td className="px-5 py-2.5 font-medium text-foreground">
                       {row.customerName ?? <span className="text-muted-foreground">Cash walk-in</span>}
@@ -225,13 +230,13 @@ export default async function ReportsPage() {
                     </td>
                     <td className="px-5 py-2.5 text-right whitespace-nowrap text-foreground/80">Rs. {row.paidAmount.toFixed(2)}</td>
                     <td className="px-5 py-2.5">
-                      <span
-                        className={
-                          row.paymentStatus === "PAID" ? "badge-emerald" : row.paymentStatus === "PARTIAL" ? "badge-amber" : "badge-red"
+                      <Badge
+                        variant={
+                          row.paymentStatus === "PAID" ? "success" : row.paymentStatus === "PARTIAL" ? "warning" : "destructive"
                         }
                       >
                         {row.paymentStatus}
-                      </span>
+                      </Badge>
                     </td>
                   </tr>
                 ))}

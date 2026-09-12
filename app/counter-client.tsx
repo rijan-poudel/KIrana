@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Minus, PackageSearch, Plus, ScanBarcode, Search, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { CustomerOption, PriceMode, ProductCardData } from "@/lib/types";
@@ -42,6 +43,9 @@ export default function CounterClient({
   const [highlight, setHighlight] = useState(0);
   const [scanOpen, setScanOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  // Quantity text being typed, keyed by cart line — lets the input hold
+  // intermediate states like "" or "0." without deleting the line mid-edit.
+  const [qtyDraft, setQtyDraft] = useState<{ key: string; value: string } | null>(null);
   const loadedRef = useRef(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -157,7 +161,8 @@ export default function CounterClient({
         toast.error(`${product.name} is out of stock.`);
         return prev;
       }
-      return [...prev, { productId, quantity: 1, unitName: unit }];
+      // Cap the first tap at what's actually on the shelf (e.g. 0.5 kg left).
+      return [...prev, { productId, quantity: Math.min(1, product.stockQuantity / factor), unitName: unit }];
     });
   }
 
@@ -234,10 +239,13 @@ export default function CounterClient({
       setSearchOpen(false);
       return;
     }
-    if (event.key !== "Enter" || !term) return;
-    // Hardware barcode scanners type the code then press Enter — snap that Enter
-    // onto an exact barcode match (or the first search hit) for one-scan billing.
-    const exact = products.find((p) => (p.barcode ?? "").toLowerCase() === term);
+    if (event.key !== "Enter") return;
+    // Hardware barcode scanners type the code then press Enter. Read the input's
+    // live value — React state can lag a fast scanner by a keystroke, and the
+    // trailing characters are exactly what makes an exact barcode match fail.
+    const typed = event.currentTarget.value.trim().toLowerCase();
+    if (!typed) return;
+    const exact = products.find((p) => (p.barcode ?? "").toLowerCase() === typed);
     const target = exact ?? filtered[0];
     if (target) addFromSearch(target);
   }
@@ -287,12 +295,17 @@ export default function CounterClient({
               className="h-14 pl-12 text-lg"
               aria-label="Search or scan products"
             />
-            {searchOpen && filtered.length > 0 && (
+            {searchOpen && term && (
               <div
                 className="absolute inset-x-0 top-full z-50 mt-2 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-md"
                 // Keep the input focused when a result is clicked, so scanning can continue.
                 onMouseDown={(e) => e.preventDefault()}
               >
+                {filtered.length === 0 && (
+                  <p className="px-3 py-3 text-sm text-muted-foreground">
+                    No products match “{query}”. Add the item in Stock first.
+                  </p>
+                )}
                 {filtered.map((p, index) => (
                   <button
                     key={p.id}
@@ -309,17 +322,13 @@ export default function CounterClient({
                       <span>
                         {formatNPR(mode === "wholesale" ? p.wholesalePrice : p.retailPrice)}/{p.baseUnit}
                       </span>
-                      <span
-                        className={
-                          p.stockQuantity <= 0
-                            ? "badge-red"
-                            : p.stockQuantity <= p.lowStockAt
-                              ? "badge-amber"
-                              : "badge-slate"
+                      <Badge
+                        variant={
+                          p.stockQuantity <= 0 ? "destructive" : p.stockQuantity <= p.lowStockAt ? "warning" : "muted"
                         }
                       >
                         {formatQuantity(p.stockQuantity)} {p.baseUnit}
-                      </span>
+                      </Badge>
                     </span>
                   </button>
                 ))}
@@ -428,9 +437,10 @@ export default function CounterClient({
               ) : (
                 cartLines.map((line) => {
                   const product = productMap.get(line.productId)!;
+                  const lineKey = `${line.productId}-${line.unitName}`;
                   return (
                     <div
-                      key={`${line.productId}-${line.unitName}`}
+                      key={lineKey}
                       className="border-b border-border/60 py-2.5 last:border-0"
                     >
                       <div className="flex items-center justify-between gap-2">
@@ -455,12 +465,23 @@ export default function CounterClient({
                             <Minus size={14} />
                           </button>
                           <input
-                            value={String(line.quantity)}
+                            value={qtyDraft?.key === lineKey ? qtyDraft.value : String(line.quantity)}
                             inputMode="decimal"
                             aria-label={`Quantity of ${line.name} in ${line.unitName}`}
                             onChange={(e) => {
-                              const value = Number.parseFloat(e.target.value);
-                              if (!Number.isNaN(value)) setQuantity(line.productId, line.unitName, value);
+                              const raw = e.target.value;
+                              setQtyDraft({ key: lineKey, value: raw });
+                              const value = Number.parseFloat(raw);
+                              // Commit only valid positive values; "0", "" or "0." stay as
+                              // editable drafts until the field blurs.
+                              if (Number.isFinite(value) && value > 0) {
+                                setQuantity(line.productId, line.unitName, value);
+                              }
+                            }}
+                            onFocus={(e) => e.currentTarget.select()}
+                            onBlur={() => setQtyDraft(null)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") e.currentTarget.blur();
                             }}
                             className="h-9 w-14 border-x border-input text-center text-sm font-semibold text-foreground focus:outline-none"
                           />
@@ -568,13 +589,13 @@ function ProductButton({
           <span className="text-xs font-medium text-muted-foreground">/{product.baseUnit}</span>
         </span>
         {outOfStock ? (
-          <span className="badge-red">Out</span>
+          <Badge variant="destructive">Out</Badge>
         ) : low ? (
-          <span className="badge-amber">{formatQuantity(product.stockQuantity)} left</span>
+          <Badge variant="warning">{formatQuantity(product.stockQuantity)} left</Badge>
         ) : (
-          <span className="badge-slate">
+          <Badge variant="muted">
             {formatQuantity(product.stockQuantity)} {product.baseUnit}
-          </span>
+          </Badge>
         )}
       </span>
     </button>

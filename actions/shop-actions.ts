@@ -577,7 +577,7 @@ export async function createDeliveryLog(
     const log = await prisma.deliveryLog.create({
       data: { driverName, destinationClient, itemsSummary, totalValue, status: "PENDING" },
     });
-    refreshShopPaths(["/reports"]);
+    refreshShopPaths(["/delivery", "/reports"]);
     return { ok: true, data: { id: log.id } };
   } catch (error) {
     return { ok: false, error: toActionError(error) };
@@ -589,7 +589,7 @@ export async function updateDeliveryStatus(id: string, status: string): Promise<
     const allowed = ["PENDING", "DELIVERED", "SETTLED"];
     if (!allowed.includes(status)) throw new Error("Invalid delivery status.");
     await prisma.deliveryLog.update({ where: { id }, data: { status } });
-    refreshShopPaths(["/reports"]);
+    refreshShopPaths(["/delivery", "/reports"]);
     return { ok: true, data: null };
   } catch (error) {
     return { ok: false, error: toActionError(error) };
@@ -599,7 +599,7 @@ export async function updateDeliveryStatus(id: string, status: string): Promise<
 export async function deleteDeliveryLog(id: string): Promise<ActionResult<null>> {
   try {
     await prisma.deliveryLog.delete({ where: { id } });
-    refreshShopPaths(["/reports"]);
+    refreshShopPaths(["/delivery", "/reports"]);
     return { ok: true, data: null };
   } catch (error) {
     return { ok: false, error: toActionError(error) };

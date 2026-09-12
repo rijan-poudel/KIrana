@@ -114,6 +114,10 @@ ledger, so Stock always reconciles. Recorded khata payments are stored as
   Start with `npm run dev:phone` and open the HTTPS address on the phone.
 - **Browser shows an old price/stock** → press F5 (the cart is never lost on
   refresh — only a completed sale clears it).
+- Dev and production builds live in separate folders (`.next-dev` /
+  `.next-prod`), so a `next build` can no longer corrupt the dev server's
+  assets. If a page ever loads unstyled or buttons do nothing, delete both
+  folders and restart.
 
 ## Tech Stack
 

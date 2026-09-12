@@ -2,18 +2,40 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Bike, CheckCircle2, Loader2, PackageCheck, Plus, Trash2, Truck, X } from "lucide-react";
+import {
+  Bike,
+  CheckCircle2,
+  Loader2,
+  PackageCheck,
+  Plus,
+  Trash2,
+  Truck,
+} from "lucide-react";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import type { DeliveryLogData } from "@/lib/types";
 import { formatDateTime, formatNPR } from "@/lib/format";
 import { createDeliveryLog, deleteDeliveryLog, updateDeliveryStatus } from "@/actions/shop-actions";
+import { cn } from "@/lib/utils";
 
 type StatusFilter = "ALL" | "PENDING" | "DELIVERED" | "SETTLED";
-type Banner = { kind: "success" | "error"; message: string } | null;
 
-const STATUS_STYLES: Record<string, string> = {
-  PENDING: "badge-amber",
-  DELIVERED: "badge-blue",
-  SETTLED: "badge-emerald",
+const STATUS_VARIANT: Record<string, "warning" | "info" | "success"> = {
+  PENDING: "warning",
+  DELIVERED: "info",
+  SETTLED: "success",
 };
 
 const NEXT_ACTION: Record<string, { status: string; label: string }> = {
@@ -24,7 +46,7 @@ const NEXT_ACTION: Record<string, { status: string; label: string }> = {
 export default function DeliveryClient({ logs }: { logs: DeliveryLogData[] }) {
   const router = useRouter();
   const [filter, setFilter] = useState<StatusFilter>("ALL");
-  const [banner, setBanner] = useState<Banner>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeliveryLogData | null>(null);
 
   const counts: Record<StatusFilter, number> = {
     ALL: logs.length,
@@ -37,62 +59,41 @@ export default function DeliveryClient({ logs }: { logs: DeliveryLogData[] }) {
 
   async function advance(log: DeliveryLogData, status: string) {
     const response = await updateDeliveryStatus(log.id, status);
-    setBanner(
-      response.ok
-        ? { kind: "success", message: `${log.destinationClient} dispatch marked ${status.toLowerCase()}.` }
-        : { kind: "error", message: response.error },
-    );
+    if (response.ok) {
+      toast.success(`${log.destinationClient} dispatch marked ${status.toLowerCase()}.`);
+    } else {
+      toast.error(response.error);
+    }
     router.refresh();
   }
 
-  async function remove(log: DeliveryLogData) {
-    const response = await deleteDeliveryLog(log.id);
-    setBanner(
-      response.ok
-        ? { kind: "success", message: `Dispatch record for ${log.destinationClient} deleted.` }
-        : { kind: "error", message: response.error },
-    );
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    const response = await deleteDeliveryLog(deleteTarget.id);
+    if (response.ok) {
+      toast.success(`Dispatch record for ${deleteTarget.destinationClient} deleted.`);
+      setDeleteTarget(null);
+    } else {
+      toast.error(response.error);
+    }
     router.refresh();
   }
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">
       <header>
-        <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Deliveries</h1>
-        <p className="mt-1 text-slate-500">
+        <h1 className="text-2xl font-bold text-foreground md:text-3xl">Deliveries</h1>
+        <p className="mt-1 text-muted-foreground">
           Log every wholesale dispatch that leaves the shop, then track it until the money is settled.
         </p>
       </header>
 
-      {banner && (
-        <div
-          className={`mt-4 flex items-start justify-between gap-3 rounded-lg border px-4 py-3 text-sm font-medium ${
-            banner.kind === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-              : "border-red-200 bg-red-50 text-red-700"
-          }`}
-        >
-          <span className="flex items-start gap-2">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-            {banner.message}
-          </span>
-          <button type="button" onClick={() => setBanner(null)} aria-label="Dismiss message" className="shrink-0">
-            <X size={16} />
-          </button>
-        </div>
-      )}
-
       <div className="mt-6 grid gap-6 lg:grid-cols-[380px_1fr]">
         <section className="card self-start p-5">
-          <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
+          <h2 className="flex items-center gap-2 text-lg font-bold text-foreground">
             <Truck size={18} /> New Dispatch
           </h2>
-          <DispatchForm
-            onSaved={(message) => {
-              setBanner({ kind: "success", message });
-              router.refresh();
-            }}
-          />
+          <DispatchForm />
         </section>
 
         <section>
@@ -102,9 +103,13 @@ export default function DeliveryClient({ logs }: { logs: DeliveryLogData[] }) {
                 key={status}
                 type="button"
                 onClick={() => setFilter(status)}
-                className={`h-10 rounded-lg px-4 text-sm font-bold transition-colors ${
-                  filter === status ? "bg-slate-900 text-white" : "border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
-                }`}
+                aria-pressed={filter === status}
+                className={cn(
+                  "h-10 rounded-lg px-4 text-sm font-bold transition-colors",
+                  filter === status
+                    ? "bg-primary text-primary-foreground"
+                    : "border border-border bg-background text-muted-foreground hover:bg-muted",
+                )}
               >
                 {status === "ALL" ? "All" : status.charAt(0) + status.slice(1).toLowerCase()} ({counts[status]})
               </button>
@@ -114,8 +119,8 @@ export default function DeliveryClient({ logs }: { logs: DeliveryLogData[] }) {
           <div className="mt-4 space-y-3">
             {visible.length === 0 ? (
               <div className="card flex flex-col items-center gap-2 p-10 text-center">
-                <Bike size={32} className="text-slate-300" />
-                <p className="text-sm font-medium text-slate-500">
+                <Bike size={32} className="text-muted-foreground/50" />
+                <p className="text-sm font-medium text-muted-foreground">
                   No dispatches {filter === "ALL" ? "recorded yet" : `in "${filter}"`}. Log one from the form.
                 </p>
               </div>
@@ -126,35 +131,35 @@ export default function DeliveryClient({ logs }: { logs: DeliveryLogData[] }) {
                   <div key={log.id} className="card p-4">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-base font-bold text-slate-900">{log.destinationClient}</p>
-                        <p className="mt-0.5 text-xs text-slate-500">
+                        <p className="text-base font-bold text-foreground">{log.destinationClient}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
                           Driver: {log.driverName} • {formatDateTime(log.createdAt)}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-base font-bold text-slate-900">{formatNPR(log.totalValue)}</span>
-                        <span className={STATUS_STYLES[log.status] ?? "badge-slate"}>{log.status}</span>
+                        <span className="text-base font-bold text-foreground">{formatNPR(log.totalValue)}</span>
+                        <Badge variant={STATUS_VARIANT[log.status] ?? "muted"}>{log.status}</Badge>
                       </div>
                     </div>
-                    <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">{log.itemsSummary}</p>
+                    <p className="mt-2 rounded-lg bg-muted px-3 py-2 text-sm text-foreground/90">{log.itemsSummary}</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {next && (
-                        <button
-                          type="button"
+                        <Button
+                          variant={log.status === "PENDING" ? "outline" : "default"}
+                          className="h-10"
                           onClick={() => advance(log, next.status)}
-                          className={log.status === "PENDING" ? "btn-secondary h-10 text-sm" : "btn-primary h-10 text-sm"}
                         >
-                          {log.status === "PENDING" ? <PackageCheck size={15} /> : <CheckCircle2 size={15} />}
+                          {log.status === "PENDING" ? <PackageCheck /> : <CheckCircle2 />}
                           {next.label}
-                        </button>
+                        </Button>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => remove(log)}
-                        className="flex h-10 items-center gap-1.5 rounded-lg border border-red-200 px-3 text-sm font-semibold text-red-500 hover:bg-red-50"
+                      <Button
+                        variant="ghost"
+                        className="h-10 text-red-600 hover:bg-red-50 hover:text-red-700"
+                        onClick={() => setDeleteTarget(log)}
                       >
-                        <Trash2 size={14} /> Delete
-                      </button>
+                        <Trash2 /> Delete
+                      </Button>
                     </div>
                   </div>
                 );
@@ -163,21 +168,40 @@ export default function DeliveryClient({ logs }: { logs: DeliveryLogData[] }) {
           </div>
         </section>
       </div>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(next) => !next && setDeleteTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete dispatch to {deleteTarget?.destinationClient}?</DialogTitle>
+            <DialogDescription>
+              This removes the record permanently. If the goods were already delivered, mark it settled instead of
+              deleting it.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete}>
+              <Trash2 /> Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function DispatchForm({ onSaved }: { onSaved: (message: string) => void }) {
+function DispatchForm() {
+  const router = useRouter();
   const [driverName, setDriverName] = useState("");
   const [destinationClient, setDestinationClient] = useState("");
   const [itemsSummary, setItemsSummary] = useState("");
   const [totalValue, setTotalValue] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    setError(null);
     setSubmitting(true);
     const response = await createDeliveryLog({
       driverName,
@@ -187,54 +211,52 @@ function DispatchForm({ onSaved }: { onSaved: (message: string) => void }) {
     });
     setSubmitting(false);
     if (response.ok) {
-      onSaved(`Dispatch to ${destinationClient.trim()} logged — status PENDING.`);
+      toast.success(`Dispatch to ${destinationClient.trim()} logged — status PENDING.`);
       setDestinationClient("");
       setItemsSummary("");
       setTotalValue("");
     } else {
-      setError(response.error);
+      toast.error(response.error);
     }
+    router.refresh();
   }
 
   return (
     <form onSubmit={handleSubmit} className="mt-4 space-y-3">
       <div>
-        <label className="label" htmlFor="d-driver">
-          Driver name *
-        </label>
-        <input id="d-driver" value={driverName} onChange={(e) => setDriverName(e.target.value)} className="input" placeholder="e.g., Father" required />
+        <Label htmlFor="d-driver">Driver name *</Label>
+        <Input
+          id="d-driver"
+          value={driverName}
+          onChange={(e) => setDriverName(e.target.value)}
+          placeholder="e.g., Father"
+          required
+        />
       </div>
       <div>
-        <label className="label" htmlFor="d-destination">
-          Destination client / shop *
-        </label>
-        <input
+        <Label htmlFor="d-destination">Destination client / shop *</Label>
+        <Input
           id="d-destination"
           value={destinationClient}
           onChange={(e) => setDestinationClient(e.target.value)}
-          className="input"
           placeholder="e.g., Bishal Store, Dumkibas"
           required
         />
       </div>
       <div>
-        <label className="label" htmlFor="d-items">
-          Items summary *
-        </label>
-        <textarea
+        <Label htmlFor="d-items">Items summary *</Label>
+        <Textarea
           id="d-items"
           value={itemsSummary}
           onChange={(e) => setItemsSummary(e.target.value)}
-          className="input min-h-[88px] resize-y"
+          className="min-h-[88px] resize-y"
           placeholder={'e.g., "5 sacks rice, 2 cartons oil, 1 box soap"'}
           required
         />
       </div>
       <div>
-        <label className="label" htmlFor="d-value">
-          Total estimated value (Rs.)
-        </label>
-        <input
+        <Label htmlFor="d-value">Total estimated value (Rs.)</Label>
+        <Input
           id="d-value"
           type="number"
           inputMode="decimal"
@@ -242,19 +264,12 @@ function DispatchForm({ onSaved }: { onSaved: (message: string) => void }) {
           step="0.01"
           value={totalValue}
           onChange={(e) => setTotalValue(e.target.value)}
-          className="input"
           placeholder="0.00"
         />
       </div>
-      {error && (
-        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-          {error}
-        </div>
-      )}
-      <button type="submit" disabled={submitting} className="btn-primary w-full">
-        {submitting ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />} Log Dispatch
-      </button>
+      <Button type="submit" disabled={submitting} className="w-full">
+        {submitting ? <Loader2 className="animate-spin" /> : <Plus />} Log Dispatch
+      </Button>
     </form>
   );
 }

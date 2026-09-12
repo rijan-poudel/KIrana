@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowDownRight, ArrowUpRight, Loader2, PackagePlus, Pencil, ScanBarcode, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -24,14 +25,16 @@ import type { ProductCardData, StockMoveData } from "@/lib/types";
 
 type UnitsDraft = { name: string; factor: string };
 
-const REASON_BADGE: Record<string, string> = {
-  PURCHASE: "badge-emerald",
-  OPENING: "badge-emerald",
-  SALE: "badge-blue",
-  DAMAGE: "badge-red",
-  RETURN: "badge-amber",
-  ADJUST: "badge-blue",
-  COUNT: "badge-slate",
+type UnitVariant = "success" | "info" | "destructive" | "warning" | "muted";
+
+const REASON_VARIANT: Record<string, UnitVariant> = {
+  PURCHASE: "success",
+  OPENING: "success",
+  SALE: "info",
+  DAMAGE: "destructive",
+  RETURN: "warning",
+  ADJUST: "info",
+  COUNT: "muted",
 };
 
 export default function InventoryClient({ products, moves }: { products: ProductCardData[]; moves: StockMoveData[] }) {
@@ -122,9 +125,9 @@ export default function InventoryClient({ products, moves }: { products: Product
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{p.category}</td>
                   <td className="px-4 py-3">
-                    <span className={out ? "badge-red" : low ? "badge-amber" : "badge-emerald"}>
+                    <Badge variant={out ? "destructive" : low ? "warning" : "success"}>
                       {formatQuantity(p.stockQuantity)} {p.baseUnit}
-                    </span>
+                    </Badge>
                     {pack && (
                       <p className="mt-0.5 text-[11px] text-muted-foreground">
                         ≈ {formatQuantity(Math.floor((p.stockQuantity / pack.factor) * 10) / 10)} {pack.name}
@@ -206,7 +209,7 @@ export default function InventoryClient({ products, moves }: { products: Product
                       : "—"}
                   </td>
                   <td className="px-5 py-2.5">
-                    <span className={REASON_BADGE[m.reason] ?? "badge-slate"}>{m.reason}</span>
+                    <Badge variant={REASON_VARIANT[m.reason] ?? "muted"}>{m.reason}</Badge>
                   </td>
                   <td className="max-w-[200px] truncate px-5 py-2.5 text-muted-foreground">{m.note ?? ""}</td>
                 </tr>

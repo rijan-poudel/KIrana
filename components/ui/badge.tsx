@@ -1,3 +1,5 @@
+"use client"
+
 import { mergeProps } from "@base-ui/react/merge-props"
 import { useRender } from "@base-ui/react/use-render"
 import { cva, type VariantProps } from "class-variance-authority"
@@ -18,6 +20,10 @@ const badgeVariants = cva(
         ghost:
           "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
         link: "text-primary underline-offset-4 hover:underline",
+        success: "bg-emerald-100 text-emerald-800",
+        warning: "bg-amber-100 text-amber-800",
+        info: "bg-blue-100 text-blue-700",
+        muted: "bg-muted text-muted-foreground",
       },
     },
     defaultVariants: {

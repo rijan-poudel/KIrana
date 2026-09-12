@@ -7,26 +7,45 @@ import {
   BookOpen,
   History,
   Loader2,
-  Phone,
   MapPin,
+  MoreVertical,
+  Pencil,
+  Phone,
   Search,
+  Trash2,
   UserPlus,
   Wallet,
-  X,
 } from "lucide-react";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type { CustomerOption, HistoryEntry } from "@/lib/types";
 import { formatDateTime, formatNPR, formatQuantity } from "@/lib/format";
-import { createCustomer, getCustomerHistory, recordPayment } from "@/actions/shop-actions";
-
-type Banner = { kind: "success" | "error"; message: string } | null;
+import { createCustomer, deleteCustomer, getCustomerHistory, recordPayment, updateCustomer } from "@/actions/shop-actions";
 
 export default function KhataClient({ customers }: { customers: CustomerOption[] }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [addOpen, setAddOpen] = useState(false);
+  const [formTarget, setFormTarget] = useState<{ mode: "new" } | { mode: "edit"; customer: CustomerOption } | null>(null);
   const [historyFor, setHistoryFor] = useState<CustomerOption | null>(null);
   const [paymentFor, setPaymentFor] = useState<CustomerOption | null>(null);
-  const [banner, setBanner] = useState<Banner>(null);
+  const [deleteFor, setDeleteFor] = useState<CustomerOption | null>(null);
 
   const term = query.trim().toLowerCase();
   const filtered = term
@@ -41,18 +60,30 @@ export default function KhataClient({ customers }: { customers: CustomerOption[]
   const totalOutstanding = customers.reduce((sum, c) => sum + Math.max(c.currentBalance, 0), 0);
   const withDues = customers.filter((c) => c.currentBalance > 0).length;
 
+  async function handleDelete() {
+    if (!deleteFor) return;
+    const response = await deleteCustomer(deleteFor.id);
+    if (response.ok) {
+      toast.success(`${deleteFor.name} removed from the khata.`);
+      setDeleteFor(null);
+      router.refresh();
+    } else {
+      toast.error(response.error);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 md:text-3xl">Udharo Khata</h1>
-          <p className="mt-1 text-slate-500">
+          <h1 className="text-2xl font-bold text-foreground md:text-3xl">Udharo Khata</h1>
+          <p className="mt-1 text-muted-foreground">
             {customers.length} customers • {withDues} with outstanding credit
           </p>
         </div>
-        <button type="button" onClick={() => setAddOpen(true)} className="btn-primary h-12 text-base">
-          <UserPlus size={18} /> Add Customer
-        </button>
+        <Button size="lg" onClick={() => setFormTarget({ mode: "new" })}>
+          <UserPlus /> Add Customer
+        </Button>
       </header>
 
       <div className="card mt-5 flex items-center justify-between p-4">
@@ -61,47 +92,30 @@ export default function KhataClient({ customers }: { customers: CustomerOption[]
             <Wallet size={22} />
           </span>
           <div>
-            <p className="text-sm font-semibold text-slate-500">Total outstanding udharo</p>
+            <p className="text-sm font-semibold text-muted-foreground">Total outstanding udharo</p>
             <p className="text-2xl font-bold text-red-600">{formatNPR(totalOutstanding)}</p>
           </div>
         </div>
       </div>
 
-      {banner && (
-        <div
-          className={`mt-4 flex items-start justify-between gap-3 rounded-lg border px-4 py-3 text-sm font-medium ${
-            banner.kind === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-              : "border-red-200 bg-red-50 text-red-700"
-          }`}
-        >
-          <span className="flex items-start gap-2">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-            {banner.message}
-          </span>
-          <button type="button" onClick={() => setBanner(null)} aria-label="Dismiss message" className="shrink-0">
-            <X size={16} />
-          </button>
-        </div>
-      )}
-
       <div className="relative mt-4">
-        <Search size={18} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-        <input
+        <Search size={18} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           type="text"
           placeholder="Search by name, phone or address…"
-          className="input pl-10"
+          className="pl-10"
+          aria-label="Search customers"
         />
       </div>
 
       {filtered.length === 0 ? (
         <div className="card mt-4 flex flex-col items-center gap-2 p-10 text-center">
-          <BookOpen size={32} className="text-slate-300" />
-          <p className="text-sm font-medium text-slate-500">
+          <BookOpen size={32} className="text-muted-foreground/50" />
+          <p className="text-sm font-medium text-muted-foreground">
             {customers.length === 0
-              ? "No customers on the khata yet. Add one, or record a credit sale from the Billing screen."
+              ? "No customers on the khata yet. Add one, or record a credit sale from the Counter."
               : "No customers match your search."}
           </p>
         </div>
@@ -111,121 +125,174 @@ export default function KhataClient({ customers }: { customers: CustomerOption[]
             <div key={customer.id} className="card flex flex-col p-4">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate text-base font-bold text-slate-900">{customer.name}</p>
-                  <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
+                  <p className="truncate text-base font-bold text-foreground">{customer.name}</p>
+                  <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                     <Phone size={12} /> {customer.phone ?? "No phone"}
                   </p>
                   {customer.address && (
-                    <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-slate-500">
+                    <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted-foreground">
                       <MapPin size={12} /> {customer.address}
                     </p>
                   )}
                 </div>
-                <span className={customer.currentBalance > 0 ? "badge-red" : customer.currentBalance < 0 ? "badge-blue" : "badge-emerald"}>
-                  {customer.currentBalance > 0
-                    ? `Owes ${formatNPR(customer.currentBalance)}`
-                    : customer.currentBalance < 0
-                      ? `Advance ${formatNPR(-customer.currentBalance)}`
-                      : "No dues"}
-                </span>
+                <div className="flex shrink-0 items-center gap-1">
+                  <BalanceBadge balance={customer.currentBalance} />
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button variant="ghost" size="icon-sm" aria-label={`Manage ${customer.name}`}>
+                          <MoreVertical />
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => setFormTarget({ mode: "edit", customer })}>
+                        <Pencil /> Edit customer
+                      </DropdownMenuItem>
+                      <DropdownMenuItem variant="destructive" onClick={() => setDeleteFor(customer)}>
+                        <Trash2 /> Delete customer
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </div>
               <div className="mt-3 flex gap-2 pt-1">
-                <button type="button" onClick={() => setHistoryFor(customer)} className="btn-secondary h-11 flex-1 text-sm">
-                  <History size={15} /> History
-                </button>
-                <button type="button" onClick={() => setPaymentFor(customer)} className="btn-primary h-11 flex-1 text-sm">
-                  <Wallet size={15} /> Record Payment
-                </button>
+                <Button variant="outline" className="h-11 flex-1" onClick={() => setHistoryFor(customer)}>
+                  <History /> History
+                </Button>
+                <Button className="h-11 flex-1" onClick={() => setPaymentFor(customer)}>
+                  <Wallet /> Record Payment
+                </Button>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {addOpen && <AddCustomerModal onClose={() => setAddOpen(false)} onSaved={(message) => { setAddOpen(false); setBanner({ kind: "success", message }); router.refresh(); }} />}
-      {historyFor && <HistoryModal customer={historyFor} onClose={() => setHistoryFor(null)} />}
-      {paymentFor && (
-        <PaymentModal
-          customer={paymentFor}
-          onClose={() => setPaymentFor(null)}
-          onSettled={(message) => {
-            setBanner({ kind: "success", message });
-            router.refresh();
-          }}
+      {formTarget && (
+        <CustomerFormDialog
+          customer={formTarget.mode === "edit" ? formTarget.customer : null}
+          onClose={() => setFormTarget(null)}
         />
       )}
+      {historyFor && <HistoryDialog customer={historyFor} onClose={() => setHistoryFor(null)} />}
+      {paymentFor && <PaymentDialog customer={paymentFor} onClose={() => setPaymentFor(null)} />}
+
+      <Dialog open={!!deleteFor} onOpenChange={(next) => !next && setDeleteFor(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove {deleteFor?.name} from the khata?</DialogTitle>
+            <DialogDescription>
+              Customers with outstanding dues or past bills cannot be removed. Their purchase history stays in the
+              reports either way.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteFor(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete}>
+              <Trash2 /> Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function AddCustomerModal({ onClose, onSaved }: { onClose: () => void; onSaved: (message: string) => void }) {
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [address, setAddress] = useState("");
-  const [error, setError] = useState<string | null>(null);
+function BalanceBadge({ balance }: { balance: number }) {
+  if (balance > 0) return <Badge variant="destructive">Owes {formatNPR(balance)}</Badge>;
+  if (balance < 0) return <Badge variant="info">Advance {formatNPR(-balance)}</Badge>;
+  return <Badge variant="success">No dues</Badge>;
+}
+
+/* ------------------------------------------------------------------ */
+
+function CustomerFormDialog({ customer, onClose }: { customer: CustomerOption | null; onClose: () => void }) {
+  const router = useRouter();
+  const [name, setName] = useState(customer?.name ?? "");
+  const [phone, setPhone] = useState(customer?.phone ?? "");
+  const [address, setAddress] = useState(customer?.address ?? "");
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    setError(null);
     setSubmitting(true);
-    const response = await createCustomer({ name, phone, address });
+    const input = { name, phone, address };
+    const response = customer ? await updateCustomer(customer.id, input) : await createCustomer(input);
     setSubmitting(false);
-    if (response.ok) onSaved(`${name.trim()} added to the khata.`);
-    else setError(response.error);
+    if (response.ok) {
+      toast.success(customer ? `${name.trim()} updated.` : `${name.trim()} added to the khata.`);
+      router.refresh();
+      onClose();
+    } else {
+      toast.error(response.error);
+    }
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Add customer">
-      <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between">
-          <h2 className="text-xl font-bold text-slate-900">Add Customer</h2>
-          <button type="button" onClick={onClose} aria-label="Close" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100">
-            <X size={20} />
-          </button>
-        </div>
-        <form onSubmit={handleSubmit} className="mt-4 space-y-3">
+    <Dialog open onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{customer ? `Edit ${customer.name}` : "Add Customer"}</DialogTitle>
+          <DialogDescription>
+            {customer
+              ? "Fix the name, phone or ward — the khata balance only moves through sales and payments."
+              : "Customers are only needed for udharo (credit) sales."}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="label" htmlFor="c-name">
-              Customer name *
-            </label>
-            <input id="c-name" value={name} onChange={(e) => setName(e.target.value)} className="input" placeholder="e.g., Ram Bahadur Gurung" required />
+            <Label htmlFor="c-name">Customer name *</Label>
+            <Input
+              id="c-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g., Ram Bahadur Gurung"
+              required
+              autoFocus
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label" htmlFor="c-phone">
-                Phone
-              </label>
-              <input id="c-phone" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" className="input" placeholder="98-XXXXXXXX" />
+              <Label htmlFor="c-phone">Phone</Label>
+              <Input
+                id="c-phone"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                inputMode="tel"
+                placeholder="98-XXXXXXXX"
+              />
             </div>
             <div>
-              <label className="label" htmlFor="c-address">
-                Ward / area
-              </label>
-              <input id="c-address" value={address} onChange={(e) => setAddress(e.target.value)} className="input" placeholder="e.g., Gaindakot Ward No. 5" />
+              <Label htmlFor="c-address">Ward / area</Label>
+              <Input
+                id="c-address"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="e.g., Gaindakot Ward No. 5"
+              />
             </div>
           </div>
-          {error && (
-            <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700">
-              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-              {error}
-            </div>
-          )}
-          <div className="flex gap-2 pt-1">
-            <button type="button" onClick={onClose} className="btn-secondary flex-1">
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancel
-            </button>
-            <button type="submit" disabled={submitting} className="btn-primary flex-1">
-              {submitting ? <Loader2 size={18} className="animate-spin" /> : null} Add Customer
-            </button>
-          </div>
+            </Button>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? <Loader2 className="animate-spin" /> : null}
+              {customer ? "Save changes" : "Add Customer"}
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function HistoryModal({ customer, onClose }: { customer: CustomerOption; onClose: () => void }) {
+/* ------------------------------------------------------------------ */
+
+function HistoryDialog({ customer, onClose }: { customer: CustomerOption; onClose: () => void }) {
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -242,53 +309,59 @@ function HistoryModal({ customer, onClose }: { customer: CustomerOption; onClose
   }, [customer.id]);
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Customer history">
-      <div className="modal-panel max-w-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900">{customer.name}</h2>
-            <p className="text-sm text-slate-500">
-              {customer.phone ?? "No phone"} {customer.address ? `• ${customer.address}` : ""}
-            </p>
+    <Dialog open onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{customer.name}</DialogTitle>
+          <DialogDescription>
+            {customer.phone ?? "No phone"}
+            {customer.address ? ` • ${customer.address}` : ""}
+          </DialogDescription>
+          <div className="mt-1">
+            <BalanceBadge balance={customer.currentBalance} />
           </div>
-          <span className={customer.currentBalance > 0 ? "badge-red" : "badge-emerald"}>
-            {customer.currentBalance > 0 ? `Owes ${formatNPR(customer.currentBalance)}` : "No dues"}
-          </span>
-        </div>
+        </DialogHeader>
 
-        <div className="mt-4 max-h-[55vh] space-y-3 overflow-y-auto pr-1">
+        <div className="max-h-[55vh] space-y-3 overflow-y-auto pr-1">
           {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700">{error}</div>
+            <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              {error}
+            </div>
           )}
           {!error && entries === null && (
-            <div className="flex items-center justify-center gap-2 py-10 text-slate-400">
+            <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
               <Loader2 size={20} className="animate-spin" /> Loading history…
             </div>
           )}
           {entries !== null && entries.length === 0 && (
-            <p className="py-10 text-center text-sm text-slate-500">No transactions yet for this customer.</p>
+            <p className="py-10 text-center text-sm text-muted-foreground">No transactions yet for this customer.</p>
           )}
           {entries !== null &&
             entries.map((entry) => {
               const isPayment = entry.type === "PAYMENT";
               return (
-                <div key={entry.id} className="rounded-xl border border-slate-200 p-3">
+                <div key={entry.id} className="rounded-xl border border-border p-3">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className={isPayment ? "badge-emerald" : entry.type === "WHOLESALE" ? "badge-blue" : "badge-slate"}>
+                      <Badge variant={isPayment ? "success" : entry.type === "WHOLESALE" ? "info" : "muted"}>
                         {isPayment ? "PAYMENT" : entry.type === "WHOLESALE" ? "WHOLESALE SALE" : "RETAIL SALE"}
-                      </span>
+                      </Badge>
                       {!isPayment && (
-                        <span
-                          className={
-                            entry.paymentStatus === "PAID" ? "badge-emerald" : entry.paymentStatus === "PARTIAL" ? "badge-amber" : "badge-red"
+                        <Badge
+                          variant={
+                            entry.paymentStatus === "PAID"
+                              ? "success"
+                              : entry.paymentStatus === "PARTIAL"
+                                ? "warning"
+                                : "destructive"
                           }
                         >
                           {entry.paymentStatus}
-                        </span>
+                        </Badge>
                       )}
                     </div>
-                    <span className="shrink-0 text-xs text-slate-400">{formatDateTime(entry.createdAt)}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{formatDateTime(entry.createdAt)}</span>
                   </div>
 
                   {isPayment ? (
@@ -299,15 +372,15 @@ function HistoryModal({ customer, onClose }: { customer: CustomerOption; onClose
                     <>
                       <ul className="mt-2 space-y-0.5">
                         {entry.items.map((item, index) => (
-                          <li key={index} className="text-xs text-slate-600">
+                          <li key={index} className="text-xs text-muted-foreground">
                             {formatQuantity(item.quantity)} {item.unitName || item.baseUnit} × {item.productName} @{" "}
                             {formatNPR(item.unitPrice)} = <span className="font-semibold">{formatNPR(item.subtotal)}</span>
                           </li>
                         ))}
                       </ul>
                       <div className="mt-2 flex justify-between text-sm">
-                        <span className="font-semibold text-slate-900">Total {formatNPR(entry.totalAmount)}</span>
-                        <span className="text-slate-500">
+                        <span className="font-semibold text-foreground">Total {formatNPR(entry.totalAmount)}</span>
+                        <span className="text-muted-foreground">
                           Paid {formatNPR(entry.paidAmount)}
                           {entry.totalAmount - entry.paidAmount > 0 && (
                             <span className="ml-1 font-semibold text-red-600">
@@ -323,23 +396,20 @@ function HistoryModal({ customer, onClose }: { customer: CustomerOption; onClose
             })}
         </div>
 
-        <button type="button" onClick={onClose} className="btn-secondary mt-4 w-full">
-          Close
-        </button>
-      </div>
-    </div>
+        <DialogFooter>
+          <Button variant="outline" className="w-full" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function PaymentModal({
-  customer,
-  onClose,
-  onSettled,
-}: {
-  customer: CustomerOption;
-  onClose: () => void;
-  onSettled: (message: string) => void;
-}) {
+/* ------------------------------------------------------------------ */
+
+function PaymentDialog({ customer, onClose }: { customer: CustomerOption; onClose: () => void }) {
+  const router = useRouter();
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -358,31 +428,33 @@ function PaymentModal({
     setSubmitting(true);
     const response = await recordPayment({ customerId: customer.id, amount: value });
     setSubmitting(false);
-    if (response.ok) setNewBalance(response.data.newBalance);
-    else setError(response.error);
+    if (response.ok) {
+      // The list behind this dialog and the day report update immediately —
+      // waiting for the user to close the modal would show a stale balance.
+      router.refresh();
+      setNewBalance(response.data.newBalance);
+    } else {
+      setError(response.error);
+    }
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Record payment">
-      <div className="modal-panel max-w-md" onClick={(e) => e.stopPropagation()}>
+    <Dialog open onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="sm:max-w-md">
         {newBalance === null ? (
           <>
-            <div className="flex items-start justify-between">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900">Record Payment</h2>
-                <p className="text-sm text-slate-500">{customer.name}</p>
+            <DialogHeader>
+              <DialogTitle>Record Payment</DialogTitle>
+              <DialogDescription>Cash received from {customer.name} towards their khata.</DialogDescription>
+              <div className="mt-1">
+                <BalanceBadge balance={outstanding} />
               </div>
-              <span className={outstanding > 0 ? "badge-red" : "badge-emerald"}>
-                {outstanding > 0 ? `Owes ${formatNPR(outstanding)}` : "No dues"}
-              </span>
-            </div>
+            </DialogHeader>
 
-            <form onSubmit={handleSubmit} className="mt-4 space-y-3">
+            <form onSubmit={handleSubmit} className="space-y-3">
               <div>
-                <label className="label" htmlFor="pay-amount">
-                  Cash received (Rs.) *
-                </label>
-                <input
+                <Label htmlFor="pay-amount">Cash received (Rs.) *</Label>
+                <Input
                   id="pay-amount"
                   type="number"
                   inputMode="decimal"
@@ -390,7 +462,7 @@ function PaymentModal({
                   step="0.01"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  className="input text-xl"
+                  className="text-xl"
                   placeholder="0.00"
                   autoFocus
                   required
@@ -413,14 +485,14 @@ function PaymentModal({
                 </div>
               )}
 
-              <div className="flex gap-2 pt-1">
-                <button type="button" onClick={onClose} className="btn-secondary flex-1">
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={onClose}>
                   Cancel
-                </button>
-                <button type="submit" disabled={submitting} className="btn-primary flex-1">
-                  {submitting ? <Loader2 size={18} className="animate-spin" /> : null} Save Payment
-                </button>
-              </div>
+                </Button>
+                <Button type="submit" disabled={submitting}>
+                  {submitting ? <Loader2 className="animate-spin" /> : null} Save Payment
+                </Button>
+              </DialogFooter>
             </form>
           </>
         ) : (
@@ -428,22 +500,22 @@ function PaymentModal({
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
               <Wallet size={28} />
             </div>
-            <h2 className="mt-3 text-xl font-bold text-slate-900">Payment Recorded</h2>
-            <p className="mt-1 text-sm text-slate-500">
+            <h2 className="mt-3 text-xl font-bold text-foreground">Payment Recorded</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               {formatNPR(Number.parseFloat(amount) || 0)} received from {customer.name}.
             </p>
-            <p className="mt-3 text-lg">
+            <p className="mt-3 text-lg text-foreground">
               New balance:{" "}
               <strong className={newBalance > 0 ? "text-red-600" : "text-emerald-700"}>
                 {newBalance > 0 ? formatNPR(newBalance) : newBalance < 0 ? `Advance ${formatNPR(-newBalance)}` : "Clear — no dues"}
               </strong>
             </p>
-            <button type="button" onClick={onClose} className="btn-primary mt-5 w-full">
+            <Button onClick={onClose} className="mt-5 w-full">
               Done
-            </button>
+            </Button>
           </div>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
