@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Minus, PackageSearch, Pause, Plus, RotateCcw, ScanBarcode, Search, ShoppingCart, Trash2 } from "lucide-react";
+import { Minus, PackageSearch, Pause, Plus, RotateCcw, ScanBarcode, Search, ShoppingCart, Trash2, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ import { CART_STORAGE_KEY } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import CheckoutDialog, { type CheckoutLine } from "./checkout-dialog";
 import ScanDialog from "./scan-dialog";
+import CustomerPicker from "./customer-picker";
 
 type CartLine = { productId: string; quantity: number; unitName: string };
 
@@ -49,6 +50,9 @@ export default function CounterClient({
   const [mode, setMode] = useState<PriceMode>("retail");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [heldBills, setHeldBills] = useState<HeldBill[]>([]);
+  // A regular customer pinned on the counter: every bill is charged to them and
+  // checkout skips the "who is this?" step. Stays until explicitly cleared.
+  const [pinnedCustomerId, setPinnedCustomerId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
@@ -70,8 +74,16 @@ export default function CounterClient({
     try {
       const raw = window.localStorage.getItem(CART_STORAGE_KEY);
       if (!raw) return;
-      const parsed = JSON.parse(raw) as { mode?: PriceMode; cart?: CartLine[]; held?: HeldBill[] };
+      const parsed = JSON.parse(raw) as {
+        mode?: PriceMode;
+        cart?: CartLine[];
+        held?: HeldBill[];
+        customerId?: string | null;
+      };
       if (parsed.mode === "retail" || parsed.mode === "wholesale") setMode(parsed.mode);
+      if (typeof parsed.customerId === "string" && customers.some((c) => c.id === parsed.customerId)) {
+        setPinnedCustomerId(parsed.customerId);
+      }
       if (Array.isArray(parsed.cart)) {
         const restored: CartLine[] = [];
         for (const line of parsed.cart) {
@@ -104,16 +116,19 @@ export default function CounterClient({
     } catch {
       // Corrupted saved cart — start with a clean basket instead of crashing.
     }
-  }, [productMap]);
+  }, [productMap, customers]);
 
   // Persist every cart change so the bill (and any parked bills) survive refreshes.
   useEffect(() => {
     try {
-      window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify({ mode, cart, held: heldBills }));
+      window.localStorage.setItem(
+        CART_STORAGE_KEY,
+        JSON.stringify({ mode, cart, held: heldBills, customerId: pinnedCustomerId }),
+      );
     } catch {
       // Storage unavailable — billing still works, it just won't survive a refresh.
     }
-  }, [mode, cart, heldBills]);
+  }, [mode, cart, heldBills, pinnedCustomerId]);
 
   // F2 opens checkout from anywhere on the counter.
   useEffect(() => {
@@ -521,6 +536,30 @@ export default function CounterClient({
               </button>
             </div>
 
+            <div className="border-b border-border px-3 py-2.5">
+              <div className="flex items-center gap-2">
+                <UserRound size={15} className="shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <CustomerPicker
+                    customers={customers}
+                    selectedId={pinnedCustomerId}
+                    onSelect={(id) => {
+                      setPinnedCustomerId(id);
+                      if (id) {
+                        const c = customers.find((x) => x.id === id);
+                        toast.success(c ? `${c.name} pinned — every bill goes to their khata.` : "Customer pinned.");
+                      } else {
+                        toast("Customer removed — bills ring up as walk-in.");
+                      }
+                    }}
+                    allowClear
+                    label="Regular customer? (pins this bill)"
+                    popoverWidth="100%"
+                  />
+                </div>
+              </div>
+            </div>
+
             <div className="max-h-[42vh] min-h-[120px] overflow-y-auto px-3 py-2">
               {cartLines.length === 0 ? (
                 <div className="flex h-[120px] flex-col items-center justify-center gap-2 text-muted-foreground">
@@ -694,6 +733,7 @@ export default function CounterClient({
         total={cartTotal}
         lines={cartLines}
         customers={customers}
+        presetCustomerId={pinnedCustomerId}
         onClose={() => setCheckoutOpen(false)}
         onSuccess={handleCheckoutSuccess}
       />

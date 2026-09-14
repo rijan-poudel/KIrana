@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BadgePercent,
@@ -24,11 +24,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { CheckoutResult, CustomerOption, PriceMode } from "@/lib/types";
 import { formatNPR, formatQuantity, round2 } from "@/lib/format";
 import { checkout } from "@/actions/shop-actions";
 import Receipt from "./receipt";
+import CustomerPicker from "./customer-picker";
 import { cn } from "@/lib/utils";
 
 export type CheckoutLine = {
@@ -55,6 +55,7 @@ export default function CheckoutDialog({
   total,
   lines,
   customers,
+  presetCustomerId,
   onClose,
   onSuccess,
 }: {
@@ -63,6 +64,7 @@ export default function CheckoutDialog({
   total: number;
   lines: CheckoutLine[];
   customers: CustomerOption[];
+  presetCustomerId?: string | null;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -79,28 +81,32 @@ export default function CheckoutDialog({
   const [discountText, setDiscountText] = useState("");
   const [discountNote, setDiscountNote] = useState("");
 
-  // Regulars first so the everyday udharo customer is one tap away.
-  const sortedCustomers = useMemo(
-    () => [...customers].sort((a, b) => Number(b.isFavorite) - Number(a.isFavorite)),
-    [customers],
-  );
-
-  // Fresh state every time the modal opens.
+  // Fresh state every time the modal opens. Gated on the closed→open transition:
+  // server actions re-validate the page while the dialog is open, which hands the
+  // monkey a *fresh* `customers` array and would otherwise reset the form and wipe
+  // a completed receipt mid-display.
+  const wasOpenRef = useRef(false);
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      wasOpenRef.current = false;
+      return;
+    }
+    if (wasOpenRef.current) return;
+    wasOpenRef.current = true;
     setChoice("CASH");
     setPaidText(String(total));
     setDiscountType("none");
     setDiscountText("");
     setDiscountNote("");
     setCustomerChoice(customers.length > 0 ? "existing" : "new");
-    setCustomerId(sortedCustomers[0]?.id ?? "");
+    // A customer pinned on the counter carries straight into checkout.
+    setCustomerId(presetCustomerId && customers.some((c) => c.id === presetCustomerId) ? presetCustomerId : "");
     setNewName("");
     setNewPhone("");
     setNewAddress("");
     setSubmitting(false);
     setResult(null);
-  }, [open, total, customers, sortedCustomers]);
+  }, [open, total, customers, presetCustomerId]);
 
   /** Rupees taken off the bill — from a flat amount or a % of the gross. */
   const discountAmount = useMemo(() => {
@@ -143,9 +149,12 @@ export default function CheckoutDialog({
     }
 
     setSubmitting(true);
+    // A customer pinned on the counter travels with the bill even on a cash
+    // sale, so the regular's purchases build up history in the khata.
+    const customerAttached = customerChoice === "existing" && customerId !== "" ? customerId : null;
     const response = await checkout({
       type: mode === "wholesale" ? "WHOLESALE" : "RETAIL",
-      customerId: needsCustomer && customerChoice === "existing" ? customerId : null,
+      customerId: customerAttached,
       newCustomer:
         needsCustomer && customerChoice === "new"
           ? { name: newName.trim(), phone: newPhone.trim(), address: newAddress.trim() }
@@ -174,7 +183,9 @@ export default function CheckoutDialog({
       toast.success(
         due > 0
           ? `Sale done — ${formatNPR(paid)} cash, ${formatNPR(due)} added to ${customerLabel}'s khata.`
-          : `Sale done — ${formatNPR(totalAmount)} cash received.`,
+          : customerAttached
+            ? `Sale done — ${formatNPR(totalAmount)} cash received for ${customerLabel}.`
+            : `Sale done — ${formatNPR(totalAmount)} cash received.`,
       );
     } else {
       toast.error(response.error);
@@ -499,20 +510,16 @@ export default function CheckoutDialog({
                 </div>
 
                 {customerChoice === "existing" ? (
-                  <Select value={customerId} onValueChange={(v) => v && setCustomerId(v)}>
-                    <SelectTrigger className="mt-3 w-full" aria-label="Select customer">
-                      <SelectValue placeholder="Choose a customer" />
-                    </SelectTrigger>
-                  <SelectContent>
-                    {sortedCustomers.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.isFavorite ? "★ " : ""}
-                        {c.name}
-                        {c.currentBalance > 0 ? ` — owes ${formatNPR(c.currentBalance)}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                  </Select>
+                  <div className="mt-3">
+                    <CustomerPicker
+                      customers={customers}
+                      selectedId={customerId || null}
+                      onSelect={(id) => setCustomerId(id ?? "")}
+                      allowClear
+                      label="Search or pick the khata customer"
+                      popoverWidth="100%"
+                    />
+                  </div>
                 ) : (
                   <div className="mt-3 space-y-2">
                     <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Customer name *" />
@@ -527,6 +534,40 @@ export default function CheckoutDialog({
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {!needsCustomer && customerChoice === "existing" && customerId !== "" && (
+              <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="flex items-center gap-1 text-sm text-foreground">
+                    Selling to <span className="font-bold">{selectedCustomer?.name ?? "the selected customer"}</span>
+                  </Label>
+                  <button
+                    type="button"
+                    onClick={() => setCustomerId("")}
+                    className="text-xs font-medium text-red-600 hover:underline"
+                  >
+                    Remove from bill
+                  </button>
+                </div>
+                {selectedCustomer?.currentBalance != null && selectedCustomer.currentBalance > 0 && (
+                  <p className="mt-1 text-xs font-medium text-amber-700">
+                    They already owe {formatNPR(selectedCustomer.currentBalance)} on khata — remind at pick-up.
+                  </p>
+                )}
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  This sale will be recorded in {selectedCustomer?.name ?? "their"} khata history.
+                </p>
+                <div className="mt-2">
+                  <CustomerPicker
+                    customers={customers}
+                    selectedId={customerId || null}
+                    onSelect={(id) => setCustomerId(id ?? "")}
+                    allowClear
+                    popoverWidth="100%"
+                  />
+                </div>
               </div>
             )}
 

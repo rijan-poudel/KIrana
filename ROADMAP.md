@@ -55,10 +55,18 @@ verified; ☐ items are next, roughly in priority order within each phase.
    one-tap **Restore** (it even auto-parks the current bill first so nothing is
    lost), plus a remove button. Bills and held bills both survive refreshes/
    crashes via localStorage.
-4. ☐ **Regular-customer quick billing** — pick the customer (or scan their tag)
-   *before* building the bill; the checkout dialog then skips the customer step.
-5. ☐ **Searchable customer picker** in checkout (Command palette) — a Select with
-   200 customers is unusable.
+4. ✅ **Regular-customer quick billing** — pin a regular on the counter before
+   building the bill (a chip in the cart card). Every sale then goes to them:
+   the checkout dialog skips the customer step entirely, shows "Selling to
+   Ram" with their due-amount reminder, and records even cash sales in their
+   khata history. The pin survives refreshes and stays until explicitly
+   cleared, so a busy regular's consecutive bills take one tap each.
+5. ✅ **Searchable customer picker** in checkout (Command palette) — type-ahead
+   by name/phone/area with favourites on top, arrows + Enter, balance badges,
+   and one-tap clear — replacing the unusable <select> both in checkout and on
+   the counter pin. (Also fixed a latent bug: a server-action revalidation
+   rebuilt the `customers` array mid-checkout and silently wiped a completed
+   receipt — the dialog now only resets on a closed→open transition.)
 6. ☐ **Edit a saved bill's lines** (beyond void + re-entry) — fix a wrong
    quantity/price without deleting the record.
 7. ☐ **Day summary print** — print the day's totals (cash/udharo/payments) for
