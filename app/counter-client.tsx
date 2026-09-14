@@ -258,7 +258,7 @@ export default function CounterClient({
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-8">
+    <div className="mx-auto max-w-7xl px-4 pt-6 pb-28 md:px-8 md:py-8">
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-foreground md:text-3xl">Counter</h1>
@@ -290,7 +290,7 @@ export default function CounterClient({
               onBlur={() => setSearchOpen(false)}
               onKeyDown={handleSearchKey}
               type="text"
-              placeholder="Search name / category, or scan a barcode…"
+              placeholder="Search or scan a barcode…"
               autoComplete="off"
               className="h-14 pl-12 text-lg"
               aria-label="Search or scan products"
@@ -554,6 +554,24 @@ export default function CounterClient({
       />
 
       <ScanDialog open={scanOpen} onOpenChange={setScanOpen} onDetected={addFromScan} />
+
+      {/* Mobile: the cart panel stacks below the product grid, so keep the
+          total + checkout reachable with a fixed bar instead of scrolling. */}
+      {cartLines.length > 0 && !checkoutOpen && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 p-3 backdrop-blur md:hidden">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">
+                {cartLines.length} item{cartLines.length === 1 ? "" : "s"} in the bill
+              </p>
+              <p className="text-lg leading-tight font-bold text-foreground">{formatNPR(cartTotal)}</p>
+            </div>
+            <Button size="lg" className="h-12 px-6 text-base" onClick={() => setCheckoutOpen(true)}>
+              <ShoppingCart /> Checkout
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -583,11 +601,11 @@ function ProductButton({
     >
       <span className="line-clamp-2 text-sm font-bold text-foreground md:text-base">{product.name}</span>
       <span className="mt-1 text-xs text-muted-foreground">{product.category}</span>
-      <span className="mt-2 flex w-full items-center justify-between">
-        <span className="text-base font-bold text-primary md:text-lg">
-          {formatNPR(price)}
-          <span className="text-xs font-medium text-muted-foreground">/{product.baseUnit}</span>
-        </span>
+        <span className="mt-2 flex w-full flex-wrap items-center justify-between gap-x-2 gap-y-1">
+          <span className="text-base font-bold whitespace-nowrap text-primary md:text-lg">
+            {formatNPR(price)}
+            <span className="text-xs font-medium text-muted-foreground">/{product.baseUnit}</span>
+          </span>
         {outOfStock ? (
           <Badge variant="destructive">Out</Badge>
         ) : low ? (

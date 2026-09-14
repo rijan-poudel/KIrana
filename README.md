@@ -51,16 +51,21 @@ math always stays exact. Stock can also be *added* in packs (buy 2 Bora →
 
 - **USB / Bluetooth scanner**: the counter search box is always focused — scan
   and the exact barcode match drops into the cart instantly.
-- **Phone camera**: the "Scan camera" button on the Counter (works on Android
-  and iOS). Camera access requires a secure context, so use HTTPS on the phone
-  (below).
+- **Phone camera**: the "Scan camera" button on the Counter. The dialog stays
+  open so a whole basket can be scanned without re-opening the camera; there is
+  a torch toggle, and a "type the barcode" fallback when a code won't read.
+  Uses the fast native `BarcodeDetector` on Android Chrome and html5-qrcode
+  elsewhere. Camera access requires a secure context, so use HTTPS on the phone
+  (below). The same scanner is available on the Stock screen to fill a
+  product's barcode field.
 
 ## Using from a phone (same WiFi)
 
 | Command | What you get |
 |---|---|
 | `npm run dev:lan` | App reachable at `http://<PC-IP>:3000` from any phone on the WiFi. Everything works except camera scanning (browsers block cameras on plain HTTP). |
-| `npm run dev:phone` | Same, but with a self-signed **HTTPS** certificate (`--experimental-https`). Accept the one-time certificate warning on the phone and camera scanning works. |
+| `npm run phone` | App (dev mode) behind a self-signed **HTTPS** proxy at `https://<PC-IP>:3443`. Accept the one-time certificate warning on the phone and camera scanning works. |
+| `npm run start:phone` | Same HTTPS proxy for the production build (`npm run build` first). |
 
 The Reports page shows a QR code with the LAN address — scan it from the phone
 and open the counter there. The cart, stock and khata are shared live with the
@@ -69,6 +74,8 @@ PC (same database).
 ## Data & Backups
 
 - All data lives in **`prisma/shop.db`** (single SQLite file).
+- **Automatic daily backup**: opening the Reports page takes a safety snapshot
+  if the last one is older than ~20 hours (the newest 30 backups are kept).
 - **Reports → "Save backup to backups/ folder"** writes a timestamped,
   consistent snapshot (`VACUUM INTO`) into **`backups/`** — even mid-sale.
 - **"Download database backup"** saves a copy into `backups/` *and* downloads
@@ -95,7 +102,8 @@ ledger, so Stock always reconciles. Recorded khata payments are stored as
 |---|---|
 | `npm run dev` | Start the app for daily use (http://localhost:3000) |
 | `npm run dev:lan` | Start reachable from other devices on the WiFi (HTTP) |
-| `npm run dev:phone` | Start with HTTPS so phone camera scanning works |
+| `npm run phone` | HTTPS for phones — camera scanning works (one-time cert warning) |
+| `npm run start:phone` | HTTPS for phones, production build |
 | `npm run build` && `npm start` | Optimized production mode (slightly faster pages) |
 | `npm run db:push` | Apply schema changes to the database |
 | `npm run db:seed` | Add the 20 staple starter products (skips if any exist) |
@@ -111,7 +119,9 @@ ledger, so Stock always reconciles. Recorded khata payments are stored as
 - **Two copies of the app running at once** → don't. SQLite allows one writer;
   close one instance before using the other.
 - **Camera button says the camera is unavailable** → you are on plain HTTP.
-  Start with `npm run dev:phone` and open the HTTPS address on the phone.
+  Run `npm run phone` and open the **https://…:3443** address it prints on the
+  phone; accept the certificate warning once. Only the camera needs https —
+  billing works on the http:// address.
 - **Browser shows an old price/stock** → press F5 (the cart is never lost on
   refresh — only a completed sale clears it).
 - Dev and production builds live in separate folders (`.next-dev` /

@@ -275,6 +275,70 @@ export async function listStockMoves(options?: {
 }
 
 /* ------------------------------------------------------------------ */
+/* Voiding a transaction (fixing mistakes)                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Removes a wrongly-entered transaction and undoes everything it did:
+ * items go back on the shelf (with a VOID ledger row), any udharo due is
+ * taken off the customer's khata, and a PAYMENT is charged back to the khata.
+ * All inside one atomic transaction.
+ */
+export async function voidTransaction(transactionId: string): Promise<ActionResult<null>> {
+  try {
+    await prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.findUnique({
+        where: { id: transactionId },
+        include: { items: true },
+      });
+      if (!transaction) throw new Error("This transaction was already removed.");
+
+      if (transaction.type === "PAYMENT") {
+        // Reverse the settlement: the money goes back onto their khata.
+        if (transaction.customerId) {
+          await tx.customer.update({
+            where: { id: transaction.customerId },
+            data: { currentBalance: { increment: transaction.totalAmount } },
+          });
+        }
+      } else {
+        // A sale: restock every line and reverse any credit given.
+        for (const item of transaction.items) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { stockQuantity: { increment: item.quantity } },
+          });
+          await tx.stockMove.create({
+            data: {
+              productId: item.productId,
+              delta: item.quantity,
+              reason: "VOID",
+              note: `Voided sale #${transaction.id.slice(-8).toUpperCase()}`,
+              refType: "TRANSACTION",
+              refId: transaction.id,
+            },
+          });
+        }
+        const dueAmount = round2(transaction.totalAmount - transaction.paidAmount);
+        if (dueAmount > 0 && transaction.customerId) {
+          await tx.customer.update({
+            where: { id: transaction.customerId },
+            data: { currentBalance: { decrement: dueAmount } },
+          });
+        }
+      }
+
+      await tx.transaction.delete({ where: { id: transaction.id } });
+    });
+
+    refreshShopPaths(["/", "/inventory", "/khata", "/reports"]);
+    return { ok: true, data: null };
+  } catch (error) {
+    return { ok: false, error: toActionError(error) };
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Customers (Khata)                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -305,6 +369,17 @@ export async function updateCustomer(id: string, input: CustomerInput): Promise<
     const customer = await prisma.customer.update({ where: { id }, data });
     refreshShopPaths(["/", "/khata"]);
     return { ok: true, data: { id: customer.id } };
+  } catch (error) {
+    return { ok: false, error: toActionError(error) };
+  }
+}
+
+/** Marks a customer as a regular (or un-marks them) so they surface first everywhere. */
+export async function setCustomerFavorite(id: string, favorite: boolean): Promise<ActionResult<null>> {
+  try {
+    await prisma.customer.update({ where: { id }, data: { isFavorite: favorite } });
+    refreshShopPaths(["/", "/khata"]);
+    return { ok: true, data: null };
   } catch (error) {
     return { ok: false, error: toActionError(error) };
   }

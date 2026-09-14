@@ -3,25 +3,17 @@ import os from "os";
 import QRCode from "qrcode";
 import prisma from "@/lib/prisma";
 import { Badge } from "@/components/ui/badge";
-import { listBackups } from "@/lib/backup";
-import { formatDateTime, formatNPR, formatQuantity, round2 } from "@/lib/format";
-import { startOfToday } from "@/lib/utils";
+import { autoBackupIfNeeded, listBackups } from "@/lib/backup";
+import { formatNPR, formatQuantity, round2 } from "@/lib/format";
+import { startOfDay, startOfToday, toDateKey } from "@/lib/utils";
 import BackupPanel from "./backup-panel";
+import DateNav from "./date-nav";
+import TransactionsTable from "./transactions-table";
+import type { ReportRowData } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Reports" };
-
-type ReportRow = {
-  id: string;
-  time: string;
-  typeLabel: string;
-  customerName: string | null;
-  details: string;
-  totalAmount: number;
-  paidAmount: number;
-  paymentStatus: string;
-};
 
 /** The LAN address phones on the same WiFi should use — not localhost. */
 async function getLanUrl(): Promise<string> {
@@ -39,13 +31,24 @@ async function getLanUrl(): Promise<string> {
   return `${proto}://${lanIp ?? host}${lanIp ? `:${port}` : ""}`;
 }
 
-export default async function ReportsPage() {
-  const todayStart = startOfToday();
+export default async function ReportsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ date?: string }>;
+}) {
+  const params = await searchParams;
+  const dateKey = params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : toDateKey(startOfToday());
+  const dayStart = startOfDay(dateKey);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setDate(dayEnd.getDate() + 1);
+  // The shopkeeper opens Reports at closing time — the natural moment for the
+  // daily safety snapshot. Refresh the list afterwards so it shows the new file.
+  const autoBackup = await autoBackupIfNeeded();
   const backups = listBackups();
 
   const [sales, payments, outstanding, products] = await Promise.all([
     prisma.transaction.findMany({
-      where: { createdAt: { gte: todayStart }, type: { in: ["RETAIL", "WHOLESALE"] } },
+      where: { createdAt: { gte: dayStart, lt: dayEnd }, type: { in: ["RETAIL", "WHOLESALE"] } },
       orderBy: { createdAt: "desc" },
       include: {
         customer: { select: { name: true } },
@@ -53,7 +56,7 @@ export default async function ReportsPage() {
       },
     }),
     prisma.transaction.findMany({
-      where: { createdAt: { gte: todayStart }, type: "PAYMENT" },
+      where: { createdAt: { gte: dayStart, lt: dayEnd }, type: "PAYMENT" },
       orderBy: { createdAt: "desc" },
       include: { customer: { select: { name: true } } },
     }),
@@ -67,20 +70,27 @@ export default async function ReportsPage() {
   const cashFromSales = round2(sales.reduce((sum, t) => sum + t.paidAmount, 0));
   const udharoAdded = round2(sales.reduce((sum, t) => sum + Math.max(t.totalAmount - t.paidAmount, 0), 0));
   const creditPayments = round2(payments.reduce((sum, p) => sum + p.totalAmount, 0));
-  const totalCashToday = round2(cashFromSales + creditPayments);
+  const totalCash = round2(cashFromSales + creditPayments);
+  const salesTotal = round2(sales.reduce((sum, t) => sum + t.totalAmount, 0));
   const outstandingTotal = round2(outstanding._sum.currentBalance ?? 0);
   const lowStock = products.filter((p) => p.stockQuantity <= p.lowStockAt);
   const stockValue = round2(products.reduce((sum, p) => sum + p.stockQuantity * p.retailPrice, 0));
 
-  const rows: ReportRow[] = [];
+  const rows: ReportRowData[] = [];
   for (const t of sales) {
     rows.push({
       id: t.id,
       time: t.createdAt.toISOString(),
       typeLabel: t.type,
       customerName: t.customer?.name ?? null,
-      details:
-        t.items.map((i) => `${formatQuantity(i.quantity)} ${i.product.name}`).join(", ") || "—",
+      items: t.items.map((i) => ({
+        name: i.product.name,
+        quantity: i.quantity,
+        unitName: i.unitName,
+        baseUnit: i.product.baseUnit,
+        unitPrice: i.unitPrice,
+        subtotal: i.subtotal,
+      })),
       totalAmount: t.totalAmount,
       paidAmount: t.paidAmount,
       paymentStatus: t.paymentStatus,
@@ -92,7 +102,7 @@ export default async function ReportsPage() {
       time: p.createdAt.toISOString(),
       typeLabel: "PAYMENT",
       customerName: p.customer?.name ?? null,
-      details: "Khata credit payment received",
+      items: [],
       totalAmount: p.totalAmount,
       paidAmount: p.totalAmount,
       paymentStatus: "PAID",
@@ -100,16 +110,11 @@ export default async function ReportsPage() {
   }
   rows.sort((a, b) => (a.time < b.time ? 1 : -1));
 
-  const metrics = [
-    { label: "Cash from Sales", value: cashFromSales, sub: `${sales.length} bills today`, tone: "text-emerald-700" },
-    { label: "Udharo Added", value: udharoAdded, sub: "credit given today", tone: "text-amber-600" },
-    {
-      label: "Credit Payments Received",
-      value: creditPayments,
-      sub: `${payments.length} khata settlements`,
-      tone: "text-emerald-700",
-    },
-    { label: "Total Cash in Hand", value: totalCashToday, sub: "count this in the cash drawer", tone: "text-foreground" },
+  const metrics: { label: string; value: number; sub: string; tone?: string }[] = [
+    { label: "Cash from Sales", value: cashFromSales, sub: `${sales.length} bill${sales.length === 1 ? "" : "s"}` },
+    { label: "Udharo Added", value: udharoAdded, sub: "credit given this day", tone: "text-amber-600" },
+    { label: "Credit Payments", value: creditPayments, sub: `${payments.length} khata settlement${payments.length === 1 ? "" : "s"}`, tone: "text-emerald-700" },
+    { label: "Total Cash in Hand", value: totalCash, sub: "count this in the cash drawer", tone: "text-foreground" },
   ];
 
   const lanUrl = await getLanUrl();
@@ -117,23 +122,37 @@ export default async function ReportsPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">
-      <header>
-        <h1 className="text-2xl font-bold text-foreground md:text-3xl">Reports</h1>
-        <p className="mt-1 text-muted-foreground">
-          Daily khata summary — match the cash numbers against the drawer, then take a backup.
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground md:text-3xl">Reports</h1>
+          <p className="mt-1 text-muted-foreground">
+            Day-by-day record of everything the shop did — match the cash numbers against the drawer.
+          </p>
+        </div>
+        <DateNav dateKey={dateKey} />
       </header>
 
       <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map((m) => (
           <div key={m.label} className="card p-4">
             <p className="text-sm font-semibold text-muted-foreground">{m.label}</p>
-            <p className={`mt-2 text-2xl font-bold ${m.tone}`}>
-              Rs. {m.value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
+            <p className={`mt-2 text-2xl font-bold ${m.tone ?? "text-foreground"}`}>{formatNPR(m.value)}</p>
             <p className="mt-1 text-xs text-muted-foreground">{m.sub}</p>
           </div>
         ))}
+      </section>
+
+      <section className="card mt-6 overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-4">
+          <div>
+            <h2 className="text-lg font-bold text-foreground">Transactions of the day</h2>
+            <p className="text-xs text-muted-foreground">
+              {rows.length} record{rows.length === 1 ? "" : "s"} • sales worth {formatNPR(salesTotal)} • use the ⋯ menu to
+              print a receipt again or void a wrong bill.
+            </p>
+          </div>
+        </div>
+        <TransactionsTable rows={rows} />
       </section>
 
       <section className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -150,9 +169,7 @@ export default async function ReportsPage() {
             </div>
           </div>
           <div className="mt-3">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-foreground">Low stock ({lowStock.length})</p>
-            </div>
+            <p className="text-sm font-semibold text-foreground">Low stock ({lowStock.length})</p>
             <div className="mt-2 space-y-1.5">
               {lowStock.length === 0 ? (
                 <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
@@ -175,9 +192,9 @@ export default async function ReportsPage() {
         <div className="card p-5">
           <h2 className="text-lg font-bold text-foreground">Open on phone</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Scan this with the shop phone (same WiFi) to bill from the counter camera. For camera scanning, start the
-            app with <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">npm run dev:phone</code> and use
-            the HTTPS address it prints.
+            Scan this with the shop phone (same WiFi). For <strong>camera barcode scanning</strong>, run{" "}
+            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">npm run phone</code> on the computer and
+            open the <strong>https://</strong> address it prints — browsers hide the camera on http:// addresses.
           </p>
           <div className="mt-3 flex items-center gap-4">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -187,69 +204,13 @@ export default async function ReportsPage() {
         </div>
       </section>
 
-      <section className="card mt-6 overflow-hidden">
-        <div className="border-b border-border px-5 py-4">
-          <h2 className="text-lg font-bold text-foreground">Today&apos;s transactions</h2>
-          <p className="text-xs text-muted-foreground">Sales and khata payments recorded since midnight, newest first.</p>
-        </div>
-        {rows.length === 0 ? (
-          <p className="px-5 py-8 text-sm text-muted-foreground">No transactions today yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/50 text-xs tracking-wide text-muted-foreground uppercase">
-                  <th className="px-5 py-2.5 font-semibold">Time</th>
-                  <th className="px-5 py-2.5 font-semibold">Type</th>
-                  <th className="px-5 py-2.5 font-semibold">Customer</th>
-                  <th className="px-5 py-2.5 font-semibold">Details</th>
-                  <th className="px-5 py-2.5 text-right font-semibold">Total</th>
-                  <th className="px-5 py-2.5 text-right font-semibold">Paid</th>
-                  <th className="px-5 py-2.5 font-semibold">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.id} className="border-b border-border/40 last:border-0">
-                    <td className="px-5 py-2.5 whitespace-nowrap text-muted-foreground">{formatDateTime(row.time)}</td>
-                    <td className="px-5 py-2.5">
-                      <Badge
-                        variant={
-                          row.typeLabel === "PAYMENT" ? "success" : row.typeLabel === "WHOLESALE" ? "info" : "muted"
-                        }
-                      >
-                        {row.typeLabel}
-                      </Badge>
-                    </td>
-                    <td className="px-5 py-2.5 font-medium text-foreground">
-                      {row.customerName ?? <span className="text-muted-foreground">Cash walk-in</span>}
-                    </td>
-                    <td className="max-w-[260px] truncate px-5 py-2.5 text-muted-foreground">{row.details}</td>
-                    <td className="px-5 py-2.5 text-right font-bold whitespace-nowrap text-foreground">
-                      Rs. {row.totalAmount.toFixed(2)}
-                    </td>
-                    <td className="px-5 py-2.5 text-right whitespace-nowrap text-foreground/80">Rs. {row.paidAmount.toFixed(2)}</td>
-                    <td className="px-5 py-2.5">
-                      <Badge
-                        variant={
-                          row.paymentStatus === "PAID" ? "success" : row.paymentStatus === "PARTIAL" ? "warning" : "destructive"
-                        }
-                      >
-                        {row.paymentStatus}
-                      </Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
       <section className="card mt-6 p-5">
         <h2 className="text-lg font-bold text-foreground">Database backup</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Take a backup every night after closing. Copies land in the{" "}
+          {autoBackup
+            ? "An automatic safety copy was saved just now when you opened this page. "
+            : "A safety copy is taken automatically at least once a day when this page is opened. "}
+          Copies land in the{" "}
           <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">backups/</code> folder next to the app —
           copy that folder to a pen drive weekly.
         </p>

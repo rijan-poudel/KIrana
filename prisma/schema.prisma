@@ -55,6 +55,7 @@ model Customer {
   phone          String?
   address        String        // e.g., Gaindakot Ward No...
   currentBalance Float         @default(0.0) // Total active udharo/credit owed
+  isFavorite     Boolean       @default(false) // regulars the shopkeeper wants one tap away
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   transactions   Transaction[]

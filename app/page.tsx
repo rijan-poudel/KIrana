@@ -40,6 +40,7 @@ export default async function CounterPage() {
     phone: c.phone,
     address: c.address,
     currentBalance: c.currentBalance,
+    isFavorite: c.isFavorite,
   }));
 
   const quickIds = topSellers.map((t) => t.productId);

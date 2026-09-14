@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "next dev",
     "dev:lan": "next dev -H 0.0.0.0",
-    "dev:phone": "next dev -H 0.0.0.0 --experimental-https",
+    "phone": "node scripts/phone.mjs",
+    "start": "next start",
+    "start:phone": "node scripts/phone.mjs --prod",
     "build": "next build",
     "start": "next start",
     "postinstall": "prisma generate",

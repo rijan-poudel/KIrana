@@ -32,6 +32,7 @@ export type CustomerOption = {
   phone: string | null;
   address: string;
   currentBalance: number;
+  isFavorite: boolean;
 };
 
 export type ProductUnitInput = { name: string; factor: number };
@@ -148,4 +149,38 @@ export type BackupInfo = {
   filename: string;
   sizeBytes: number;
   createdAt: string;
+};
+
+/** One line of a saved transaction, as re-printed on receipts and reports. */
+export type ReceiptLine = {
+  name: string;
+  quantity: number; // base units
+  unitName: string; // billed unit ("" = base unit)
+  baseUnit: string;
+  unitPrice: number; // per base unit
+  subtotal: number;
+};
+
+/** A saved transaction rendered by the shared receipt + report components. */
+export type ReceiptData = {
+  id: string;
+  createdAt: string; // ISO
+  type: string; // RETAIL | WHOLESALE
+  totalAmount: number;
+  paidAmount: number;
+  paymentStatus: string;
+  customerLabel: string | null;
+  items: ReceiptLine[];
+};
+
+/** One row of the day report table. */
+export type ReportRowData = {
+  id: string;
+  time: string;
+  typeLabel: string; // RETAIL | WHOLESALE | PAYMENT
+  customerName: string | null;
+  items: ReceiptLine[];
+  totalAmount: number;
+  paidAmount: number;
+  paymentStatus: string;
 };

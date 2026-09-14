@@ -12,6 +12,7 @@ import {
   Pencil,
   Phone,
   Search,
+  Star,
   Trash2,
   UserPlus,
   Wallet,
@@ -36,8 +37,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { CustomerOption, HistoryEntry } from "@/lib/types";
-import { formatDateTime, formatNPR, formatQuantity } from "@/lib/format";
-import { createCustomer, deleteCustomer, getCustomerHistory, recordPayment, updateCustomer } from "@/actions/shop-actions";
+import { formatDateTime, formatNPR, formatQuantity, round2 } from "@/lib/format";
+import { createCustomer, deleteCustomer, getCustomerHistory, recordPayment, setCustomerFavorite, updateCustomer } from "@/actions/shop-actions";
 
 export default function KhataClient({ customers }: { customers: CustomerOption[] }) {
   const router = useRouter();
@@ -66,6 +67,16 @@ export default function KhataClient({ customers }: { customers: CustomerOption[]
     if (response.ok) {
       toast.success(`${deleteFor.name} removed from the khata.`);
       setDeleteFor(null);
+      router.refresh();
+    } else {
+      toast.error(response.error);
+    }
+  }
+
+  async function toggleFavorite(customer: CustomerOption) {
+    const response = await setCustomerFavorite(customer.id, !customer.isFavorite);
+    if (response.ok) {
+      toast.success(customer.isFavorite ? `${customer.name} removed from regulars.` : `${customer.name} marked as a regular.`);
       router.refresh();
     } else {
       toast.error(response.error);
@@ -125,7 +136,10 @@ export default function KhataClient({ customers }: { customers: CustomerOption[]
             <div key={customer.id} className="card flex flex-col p-4">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate text-base font-bold text-foreground">{customer.name}</p>
+                  <p className="flex items-center gap-1.5 truncate text-base font-bold text-foreground">
+                    {customer.isFavorite && <Star size={14} className="shrink-0 fill-amber-400 text-amber-500" aria-hidden />}
+                    {customer.name}
+                  </p>
                   <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                     <Phone size={12} /> {customer.phone ?? "No phone"}
                   </p>
@@ -146,6 +160,10 @@ export default function KhataClient({ customers }: { customers: CustomerOption[]
                       }
                     />
                     <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => toggleFavorite(customer)}>
+                        <Star className={customer.isFavorite ? "fill-amber-400 text-amber-500" : ""} />
+                        {customer.isFavorite ? "Remove from regulars" : "Mark as regular"}
+                      </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => setFormTarget({ mode: "edit", customer })}>
                         <Pencil /> Edit customer
                       </DropdownMenuItem>
@@ -205,6 +223,27 @@ function BalanceBadge({ balance }: { balance: number }) {
   if (balance > 0) return <Badge variant="destructive">Owes {formatNPR(balance)}</Badge>;
   if (balance < 0) return <Badge variant="info">Advance {formatNPR(-balance)}</Badge>;
   return <Badge variant="success">No dues</Badge>;
+}
+
+/** Lifetime per-person summary shown above the transaction timeline. */
+function HistoryTotals({ entries }: { entries: HistoryEntry[] }) {
+  const billed = entries.filter((e) => e.type !== "PAYMENT").reduce((sum, e) => sum + e.totalAmount, 0);
+  const paid = entries.reduce((sum, e) => sum + e.paidAmount, 0);
+  const stats = [
+    { label: "Total billed", value: formatNPR(round2(billed)) },
+    { label: "Total paid", value: formatNPR(round2(paid)) },
+    { label: "Visits", value: String(entries.filter((e) => e.type !== "PAYMENT").length) },
+  ];
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      {stats.map((s) => (
+        <div key={s.label} className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-center">
+          <p className="text-[11px] text-muted-foreground">{s.label}</p>
+          <p className="text-sm font-bold text-foreground">{s.value}</p>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -337,6 +376,7 @@ function HistoryDialog({ customer, onClose }: { customer: CustomerOption; onClos
           {entries !== null && entries.length === 0 && (
             <p className="py-10 text-center text-sm text-muted-foreground">No transactions yet for this customer.</p>
           )}
+          {entries !== null && entries.length > 0 && <HistoryTotals entries={entries} />}
           {entries !== null &&
             entries.map((entry) => {
               const isPayment = entry.type === "PAYMENT";

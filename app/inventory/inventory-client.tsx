@@ -22,6 +22,7 @@ import { formatDateTime, formatNPR, formatQuantity } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { adjustStock, createProduct, deleteProduct, updateProduct } from "@/actions/shop-actions";
 import type { ProductCardData, StockMoveData } from "@/lib/types";
+import ScanDialog from "../scan-dialog";
 
 type UnitsDraft = { name: string; factor: string };
 
@@ -44,18 +45,32 @@ export default function InventoryClient({ products, moves }: { products: Product
   const [stockTarget, setStockTarget] = useState<ProductCardData | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ProductCardData | null>(null);
   const [moveFilter, setMoveFilter] = useState("all");
+  const [category, setCategory] = useState("all");
+  const [stockFilter, setStockFilter] = useState<"all" | "ok" | "low" | "out">("all");
+
+  const categories = useMemo(
+    () => [...new Set(products.map((p) => p.category))].sort((a, b) => a.localeCompare(b)),
+    [products],
+  );
 
   const term = query.trim().toLowerCase();
-  const filtered = useMemo(
-    () =>
-      products.filter(
-        (p) =>
-          p.name.toLowerCase().includes(term) ||
-          p.category.toLowerCase().includes(term) ||
-          (p.barcode ?? "").toLowerCase().includes(term),
-      ),
-    [products, term],
-  );
+  const filtered = useMemo(() => {
+    return products.filter((p) => {
+      if (
+        term &&
+        !p.name.toLowerCase().includes(term) &&
+        !p.category.toLowerCase().includes(term) &&
+        !(p.barcode ?? "").toLowerCase().includes(term)
+      ) {
+        return false;
+      }
+      if (category !== "all" && p.category !== category) return false;
+      if (stockFilter === "out" && p.stockQuantity > 0) return false;
+      if (stockFilter === "low" && !(p.stockQuantity > 0 && p.stockQuantity <= p.lowStockAt)) return false;
+      if (stockFilter === "ok" && p.stockQuantity <= p.lowStockAt) return false;
+      return true;
+    });
+  }, [products, term, category, stockFilter]);
 
   const lowCount = products.filter((p) => p.stockQuantity <= p.lowStockAt).length;
   const filteredMoves = moveFilter === "all" ? moves : moves.filter((m) => m.productName === moveFilter);
@@ -86,20 +101,105 @@ export default function InventoryClient({ products, moves }: { products: Product
         </Button>
       </header>
 
-      <div className="relative">
-        <Search size={18} className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search products…" className="pl-10" />
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[200px] flex-1">
+          <Search size={18} className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search products…" className="pl-10" />
+        </div>
+        <Select value={category} onValueChange={(v) => v && setCategory(v)}>
+          <SelectTrigger className="w-[170px]" aria-label="Filter by category">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All categories</SelectItem>
+            {categories.map((c) => (
+              <SelectItem key={c} value={c}>
+                {c}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="flex gap-1 rounded-lg border border-border p-1">
+          {([
+            { value: "all", label: "All" },
+            { value: "ok", label: "In stock" },
+            { value: "low", label: "Low" },
+            { value: "out", label: "Out" },
+          ] as const).map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setStockFilter(opt.value)}
+              aria-pressed={stockFilter === opt.value}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-xs font-bold transition-colors",
+                stockFilter === opt.value
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted",
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="card mt-4 overflow-x-auto">
-        <table className="w-full min-w-[820px] text-left text-sm">
+      {/* Phones: card list — a 6-column table can't fit a 390px screen. */}
+      <div className="mt-4 space-y-2.5 md:hidden">
+        {filtered.length === 0 && (
+          <div className="card p-8 text-center text-sm text-muted-foreground">
+            {products.length === 0 ? "No products yet — add the first one." : "No products match the filters."}
+          </div>
+        )}
+        {filtered.map((p) => {
+          const out = p.stockQuantity <= 0;
+          const low = !out && p.stockQuantity <= p.lowStockAt;
+          return (
+            <div key={p.id} className="card p-3.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-foreground">{p.name}</p>
+                  {p.barcode && <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">{p.barcode}</p>}
+                </div>
+                <Badge variant={out ? "destructive" : low ? "warning" : "success"}>
+                  {formatQuantity(p.stockQuantity)} {p.baseUnit}
+                </Badge>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span className="truncate">{p.category}</span>
+                <span className="shrink-0 text-sm font-bold text-foreground">{formatNPR(p.retailPrice)}</span>
+              </div>
+              <div className="mt-3 flex items-center gap-1.5">
+                <Button variant="outline" size="sm" className="h-8 flex-1" onClick={() => setStockTarget(p)}>
+                  <PackagePlus /> Stock
+                </Button>
+                <Button variant="outline" size="icon-sm" aria-label={`Edit ${p.name}`} onClick={() => setFormTarget(p)}>
+                  <Pencil />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label={`Delete ${p.name}`}
+                  className="hover:border-red-300 hover:text-red-600"
+                  onClick={() => setDeleteTarget(p)}
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="card mt-4 hidden overflow-x-auto md:block">
+        <table className="w-full text-left text-sm md:min-w-[820px]">
           <thead>
             <tr className="border-b border-border bg-muted/50 text-xs tracking-wide text-muted-foreground uppercase">
               <th className="px-4 py-3 font-semibold">Product</th>
-              <th className="px-4 py-3 font-semibold">Category</th>
-              <th className="px-4 py-3 font-semibold">In stock</th>
+              <th className="hidden px-4 py-3 font-semibold md:table-cell">Category</th>
+              <th className="hidden px-4 py-3 font-semibold md:table-cell">In stock</th>
               <th className="px-4 py-3 text-right font-semibold">Retail</th>
-              <th className="px-4 py-3 text-right font-semibold">Wholesale</th>
+              <th className="hidden px-4 py-3 text-right font-semibold lg:table-cell">Wholesale</th>
               <th className="px-4 py-3 text-right font-semibold">Actions</th>
             </tr>
           </thead>
@@ -107,7 +207,7 @@ export default function InventoryClient({ products, moves }: { products: Product
             {filtered.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
-                  {products.length === 0 ? "No products yet — add the first one." : "No products match the search."}
+                  {products.length === 0 ? "No products yet — add the first one." : "No products match the filters."}
                 </td>
               </tr>
             )}
@@ -123,8 +223,8 @@ export default function InventoryClient({ products, moves }: { products: Product
                     <p className="font-semibold text-foreground">{p.name}</p>
                     {p.barcode && <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">{p.barcode}</p>}
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">{p.category}</td>
-                  <td className="px-4 py-3">
+                  <td className="hidden px-4 py-3 text-muted-foreground md:table-cell">{p.category}</td>
+                  <td className="hidden px-4 py-3 md:table-cell">
                     <Badge variant={out ? "destructive" : low ? "warning" : "success"}>
                       {formatQuantity(p.stockQuantity)} {p.baseUnit}
                     </Badge>
@@ -135,20 +235,20 @@ export default function InventoryClient({ products, moves }: { products: Product
                     )}
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">{formatNPR(p.retailPrice)}</td>
-                  <td className="px-4 py-3 text-right whitespace-nowrap">{formatNPR(p.wholesalePrice)}</td>
+                  <td className="hidden px-4 py-3 text-right whitespace-nowrap lg:table-cell">{formatNPR(p.wholesalePrice)}</td>
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-1">
                       <Button variant="outline" size="sm" onClick={() => setStockTarget(p)}>
                         <PackagePlus /> Stock
                       </Button>
-                      <Button variant="ghost" size="icon-sm" aria-label={`Edit ${p.name}`} onClick={() => setFormTarget(p)}>
+                      <Button variant="outline" size="icon-sm" aria-label={`Edit ${p.name}`} onClick={() => setFormTarget(p)}>
                         <Pencil />
                       </Button>
                       <Button
-                        variant="ghost"
+                        variant="outline"
                         size="icon-sm"
                         aria-label={`Delete ${p.name}`}
-                        className="hover:text-red-600"
+                        className="hover:border-red-300 hover:text-red-600"
                         onClick={() => setDeleteTarget(p)}
                       >
                         <Trash2 />
@@ -259,6 +359,7 @@ function ProductFormDialog({ product, onClose }: { product: ProductCardData | nu
   const [retailPrice, setRetailPrice] = useState(String(product?.retailPrice ?? ""));
   const [wholesalePrice, setWholesalePrice] = useState(String(product?.wholesalePrice ?? ""));
   const [openingStock, setOpeningStock] = useState("0");
+  const [scanOpen, setScanOpen] = useState(false);
   const [units, setUnits] = useState<UnitsDraft[]>(
     product?.units.map((u) => ({ name: u.name, factor: String(u.factor) })) ?? [],
   );
@@ -302,10 +403,11 @@ function ProductFormDialog({ product, onClose }: { product: ProductCardData | nu
   }
 
   return (
-    <Dialog open onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{product ? `Edit ${product.name}` : "Add product"}</DialogTitle>
+    <>
+      <Dialog open onOpenChange={(next) => !next && onClose()}>
+        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{product ? `Edit ${product.name}` : "Add product"}</DialogTitle>
           <DialogDescription>
             Stock is counted in one base unit; pack sizes like Cartons convert automatically when selling.
           </DialogDescription>
@@ -332,18 +434,30 @@ function ProductFormDialog({ product, onClose }: { product: ProductCardData | nu
                 placeholder="Staples, Snacks…"
               />
             </div>
-            <div>
+            <div className="col-span-2">
               <Label htmlFor="p-barcode">
                 <span className="inline-flex items-center gap-1">
                   <ScanBarcode size={13} /> Barcode
                 </span>
               </Label>
-              <Input
-                id="p-barcode"
-                value={barcode}
-                onChange={(e) => setBarcode(e.target.value)}
-                placeholder="Scan or type…"
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  id="p-barcode"
+                  value={barcode}
+                  onChange={(e) => setBarcode(e.target.value)}
+                  placeholder="Scan or type…"
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  aria-label="Scan barcode with the camera"
+                  onClick={() => setScanOpen(true)}
+                >
+                  <ScanBarcode />
+                </Button>
+              </div>
             </div>
             <div>
               <Label>Base unit</Label>
@@ -477,8 +591,17 @@ function ProductFormDialog({ product, onClose }: { product: ProductCardData | nu
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+      <ScanDialog
+        open={scanOpen}
+        onOpenChange={setScanOpen}
+        onDetected={(code) => {
+          setBarcode(code);
+          setScanOpen(false);
+        }}
+      />
+    </>
   );
 }
 

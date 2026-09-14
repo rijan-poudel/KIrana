@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { CheckoutResult, CustomerOption, PriceMode } from "@/lib/types";
 import { formatNPR, formatQuantity, round2 } from "@/lib/format";
 import { checkout } from "@/actions/shop-actions";
-import { APP_LOCATION, APP_NAME } from "@/lib/constants";
+import Receipt from "./receipt";
 import { cn } from "@/lib/utils";
 
 export type CheckoutLine = {
@@ -65,19 +65,25 @@ export default function CheckoutDialog({
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<CheckoutResult | null>(null);
 
+  // Regulars first so the everyday udharo customer is one tap away.
+  const sortedCustomers = useMemo(
+    () => [...customers].sort((a, b) => Number(b.isFavorite) - Number(a.isFavorite)),
+    [customers],
+  );
+
   // Fresh state every time the modal opens.
   useEffect(() => {
     if (!open) return;
     setChoice("CASH");
     setPaidText(String(total));
     setCustomerChoice(customers.length > 0 ? "existing" : "new");
-    setCustomerId(customers[0]?.id ?? "");
+    setCustomerId(sortedCustomers[0]?.id ?? "");
     setNewName("");
     setNewPhone("");
     setNewAddress("");
     setSubmitting(false);
     setResult(null);
-  }, [open, total, customers]);
+  }, [open, total, customers, sortedCustomers]);
 
   const paidAmount = useMemo(() => {
     if (choice === "CASH") return total;
@@ -147,7 +153,25 @@ export default function CheckoutDialog({
         {result ? (
           <>
             <div id="receipt-print" className="hidden print:block">
-              <Receipt result={result} customerLabel={customerLabel} mode={mode} />
+              <Receipt
+                data={{
+                  id: result.transactionId,
+                  createdAt: new Date().toISOString(),
+                  type: mode === "wholesale" ? "WHOLESALE" : "RETAIL",
+                  totalAmount: result.totalAmount,
+                  paidAmount: result.paidAmount,
+                  paymentStatus: result.paymentStatus,
+                  customerLabel: customerLabel,
+                  items: result.lines.map((line) => ({
+                    name: line.name,
+                    quantity: line.baseQuantity,
+                    unitName: "",
+                    baseUnit: line.baseUnit,
+                    unitPrice: line.unitPrice,
+                    subtotal: line.subtotal,
+                  })),
+                }}
+              />
             </div>
             <div className="text-center">
               <CheckCircle2 size={48} className="mx-auto text-emerald-600" />
@@ -346,14 +370,15 @@ export default function CheckoutDialog({
                     <SelectTrigger className="mt-3 w-full" aria-label="Select customer">
                       <SelectValue placeholder="Choose a customer" />
                     </SelectTrigger>
-                    <SelectContent>
-                      {customers.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                          {c.currentBalance > 0 ? ` — owes ${formatNPR(c.currentBalance)}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
+                  <SelectContent>
+                    {sortedCustomers.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.isFavorite ? "★ " : ""}
+                        {c.name}
+                        {c.currentBalance > 0 ? ` — owes ${formatNPR(c.currentBalance)}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                   </Select>
                 ) : (
                   <div className="mt-3 space-y-2">
@@ -387,48 +412,3 @@ export default function CheckoutDialog({
   );
 }
 
-function Receipt({
-  result,
-  customerLabel,
-  mode,
-}: {
-  result: CheckoutResult;
-  customerLabel: string;
-  mode: PriceMode;
-}) {
-  return (
-    <div className="font-mono text-[11px] leading-snug text-black">
-      <p className="text-center text-sm font-bold uppercase">{APP_NAME}</p>
-      <p className="text-center">{APP_LOCATION}</p>
-      <p className="mt-1 text-center">
-        Receipt #{result.transactionId.slice(-8).toUpperCase()} — {new Date().toLocaleString()}
-      </p>
-      <p className="text-center">{mode === "wholesale" ? "WHOLESALE" : "RETAIL"}</p>
-      <div className="my-1 border-t border-dashed border-black/40" />
-      {result.lines.map((line) => (
-        <div key={`${line.productId}-${line.unitName}`} className="flex justify-between gap-2">
-          <span className="min-w-0">
-            {formatQuantity(line.baseQuantity)} {line.baseUnit} × {formatNPR(line.unitPrice)} {line.name}
-          </span>
-          <span className="shrink-0">{formatNPR(line.subtotal)}</span>
-        </div>
-      ))}
-      <div className="my-1 border-t border-dashed border-black/40" />
-      <div className="flex justify-between font-bold">
-        <span>TOTAL</span>
-        <span>{formatNPR(result.totalAmount)}</span>
-      </div>
-      <div className="flex justify-between">
-        <span>PAID</span>
-        <span>{formatNPR(result.paidAmount)}</span>
-      </div>
-      {result.dueAmount > 0 && (
-        <div className="flex justify-between font-bold">
-          <span>UDHARO ({customerLabel})</span>
-          <span>{formatNPR(result.dueAmount)}</span>
-        </div>
-      )}
-      <p className="mt-2 text-center">धन्यवाद! Please come again.</p>
-    </div>
-  );
-}

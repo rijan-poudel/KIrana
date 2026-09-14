@@ -7,7 +7,9 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Udharo Khata" };
 
 export default async function KhataPage() {
-  const customers = await prisma.customer.findMany({ orderBy: [{ currentBalance: "desc" }, { name: "asc" }] });
+  const customers = await prisma.customer.findMany({
+    orderBy: [{ isFavorite: "desc" }, { currentBalance: "desc" }, { name: "asc" }],
+  });
 
   const options: CustomerOption[] = customers.map((c) => ({
     id: c.id,
@@ -15,6 +17,7 @@ export default async function KhataPage() {
     phone: c.phone,
     address: c.address,
     currentBalance: c.currentBalance,
+    isFavorite: c.isFavorite,
   }));
 
   return <KhataClient customers={options} />;

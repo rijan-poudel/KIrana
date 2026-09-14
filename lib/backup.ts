@@ -54,3 +54,31 @@ export function listBackups(): BackupInfo[] {
     })
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
+
+/** Take an automatic snapshot at most once every 20 hours; keep the newest 30. */
+const AUTO_BACKUP_MIN_INTERVAL_MS = 20 * 60 * 60 * 1000;
+const AUTO_BACKUP_KEEP = 30;
+
+/**
+ * Runs when the Reports page is opened (the shop's nightly closing stop): if
+ * the newest backup is stale, quietly snapshot the database. Best-effort — a
+ * failure never blocks the page, the manual button still works.
+ */
+export async function autoBackupIfNeeded(): Promise<BackupInfo | null> {
+  try {
+    const newest = listBackups()[0];
+    const fresh = newest && Date.now() - new Date(newest.createdAt).getTime() < AUTO_BACKUP_MIN_INTERVAL_MS;
+    if (fresh) return null;
+    const created = await createBackupFile();
+    for (const old of listBackups().slice(AUTO_BACKUP_KEEP)) {
+      try {
+        fs.unlinkSync(path.join(BACKUPS_DIR, old.filename));
+      } catch {
+        // An undeletable old backup is harmless — keep going.
+      }
+    }
+    return created;
+  } catch {
+    return null;
+  }
+}
