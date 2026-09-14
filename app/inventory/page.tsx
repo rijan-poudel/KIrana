@@ -26,6 +26,7 @@ export default async function InventoryPage() {
     barcode: p.barcode,
     retailPrice: p.retailPrice,
     wholesalePrice: p.wholesalePrice,
+    costPrice: p.costPrice,
     stockQuantity: p.stockQuantity,
     baseUnit: p.baseUnit,
     lowStockAt: p.lowStockAt,

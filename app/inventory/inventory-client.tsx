@@ -18,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BASE_UNITS, UNIT_PRESETS } from "@/lib/constants";
-import { formatDateTime, formatNPR, formatQuantity } from "@/lib/format";
+import { formatDateTime, formatNPR, formatPercentage, formatQuantity, round2 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { adjustStock, createProduct, deleteProduct, updateProduct } from "@/actions/shop-actions";
 import type { ProductCardData, StockMoveData } from "@/lib/types";
@@ -166,7 +166,10 @@ export default function InventoryClient({ products, moves }: { products: Product
                 </Badge>
               </div>
               <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span className="truncate">{p.category}</span>
+                <span className="truncate">
+                  {p.category}
+                  {p.costPrice > 0 && <span className="ml-1.5 font-mono text-[11px]">cost {formatNPR(p.costPrice)}</span>}
+                </span>
                 <span className="shrink-0 text-sm font-bold text-foreground">{formatNPR(p.retailPrice)}</span>
               </div>
               <div className="mt-3 flex items-center gap-1.5">
@@ -198,6 +201,7 @@ export default function InventoryClient({ products, moves }: { products: Product
               <th className="px-4 py-3 font-semibold">Product</th>
               <th className="hidden px-4 py-3 font-semibold md:table-cell">Category</th>
               <th className="hidden px-4 py-3 font-semibold md:table-cell">In stock</th>
+              <th className="hidden px-4 py-3 text-right font-semibold lg:table-cell">Cost</th>
               <th className="px-4 py-3 text-right font-semibold">Retail</th>
               <th className="hidden px-4 py-3 text-right font-semibold lg:table-cell">Wholesale</th>
               <th className="px-4 py-3 text-right font-semibold">Actions</th>
@@ -232,6 +236,18 @@ export default function InventoryClient({ products, moves }: { products: Product
                       <p className="mt-0.5 text-[11px] text-muted-foreground">
                         ≈ {formatQuantity(Math.floor((p.stockQuantity / pack.factor) * 10) / 10)} {pack.name}
                       </p>
+                    )}
+                  </td>
+                  <td className="hidden px-4 py-3 text-right whitespace-nowrap lg:table-cell">
+                    {p.costPrice > 0 ? (
+                      <>
+                        {formatNPR(p.costPrice)}
+                        <span className="ml-1 text-[11px] text-emerald-700">
+                          ↗{formatPercentage((p.retailPrice - p.costPrice) / p.costPrice)}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">{formatNPR(p.retailPrice)}</td>
@@ -358,6 +374,7 @@ function ProductFormDialog({ product, onClose }: { product: ProductCardData | nu
   const [lowStockAt, setLowStockAt] = useState(String(product?.lowStockAt ?? 10));
   const [retailPrice, setRetailPrice] = useState(String(product?.retailPrice ?? ""));
   const [wholesalePrice, setWholesalePrice] = useState(String(product?.wholesalePrice ?? ""));
+  const [costPrice, setCostPrice] = useState(String(product?.costPrice ?? ""));
   const [openingStock, setOpeningStock] = useState("0");
   const [scanOpen, setScanOpen] = useState(false);
   const [units, setUnits] = useState<UnitsDraft[]>(
@@ -386,6 +403,7 @@ function ProductFormDialog({ product, onClose }: { product: ProductCardData | nu
       lowStockAt: Number(lowStockAt) || 0,
       retailPrice: Number(retailPrice) || 0,
       wholesalePrice: Number(wholesalePrice) || 0,
+      costPrice: Number(costPrice) || 0,
       openingStock: Number(openingStock) || 0,
       units: units
         .filter((u) => u.name.trim())
@@ -509,6 +527,18 @@ function ProductFormDialog({ product, onClose }: { product: ProductCardData | nu
                 required
               />
             </div>
+            <div>
+              <Label htmlFor="p-cost">Cost price / {baseUnit}</Label>
+              <Input
+                id="p-cost"
+                type="number"
+                min={0}
+                step="0.01"
+                value={costPrice}
+                onChange={(e) => setCostPrice(e.target.value)}
+                placeholder="What you pay for it"
+              />
+            </div>
             {!product && (
               <div className="col-span-2">
                 <Label htmlFor="p-opening">Opening stock ({baseUnit})</Label>
@@ -621,6 +651,7 @@ function StockDialog({ product, onClose }: { product: ProductCardData; onClose: 
   const [unitName, setUnitName] = useState(product.baseUnit);
   const [quantity, setQuantity] = useState("");
   const [note, setNote] = useState("");
+  const [costTotal, setCostTotal] = useState("");
   const [busy, setBusy] = useState(false);
 
   const options = [
@@ -646,6 +677,7 @@ function StockDialog({ product, onClose }: { product: ProductCardData; onClose: 
       quantity: qty,
       unitName: mode === "COUNT" ? product.baseUnit : unitName,
       note,
+      costTotal: mode === "PURCHASE" ? Number(costTotal) || 0 : undefined,
     });
     setBusy(false);
     if (response.ok) {
@@ -749,6 +781,26 @@ function StockDialog({ product, onClose }: { product: ProductCardData; onClose: 
             <p className="rounded-lg bg-muted px-3 py-2 text-sm font-medium text-muted-foreground">
               Effect: {preview}
             </p>
+          )}
+
+          {mode === "PURCHASE" && (
+            <div>
+              <Label htmlFor="s-cost">Total purchase cost (Rs.)</Label>
+              <Input
+                id="s-cost"
+                type="number"
+                min={0}
+                step="0.01"
+                value={costTotal}
+                onChange={(e) => setCostTotal(e.target.value)}
+                placeholder="Optional — updates cost price"
+              />
+              {costTotal !== "" && Number(costTotal) > 0 && qty > 0 && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  ≈ {formatNPR(round2(Number(costTotal) / (qty * factor)))} per {product.baseUnit} after this lot
+                </p>
+              )}
+            </div>
           )}
 
           <div>

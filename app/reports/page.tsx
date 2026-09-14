@@ -4,7 +4,7 @@ import QRCode from "qrcode";
 import prisma from "@/lib/prisma";
 import { Badge } from "@/components/ui/badge";
 import { autoBackupIfNeeded, listBackups } from "@/lib/backup";
-import { formatNPR, formatQuantity, round2 } from "@/lib/format";
+import { formatNPR, formatPercentage, formatQuantity, round2 } from "@/lib/format";
 import { startOfDay, startOfToday, toDateKey } from "@/lib/utils";
 import BackupPanel from "./backup-panel";
 import DateNav from "./date-nav";
@@ -52,7 +52,7 @@ export default async function ReportsPage({
       orderBy: { createdAt: "desc" },
       include: {
         customer: { select: { name: true } },
-        items: { include: { product: { select: { name: true, baseUnit: true } } } },
+        items: { include: { product: { select: { name: true, baseUnit: true, costPrice: true } } } },
       },
     }),
     prisma.transaction.findMany({
@@ -62,7 +62,7 @@ export default async function ReportsPage({
     }),
     prisma.customer.aggregate({ _sum: { currentBalance: true }, where: { currentBalance: { gt: 0 } } }),
     prisma.product.findMany({
-      select: { id: true, name: true, stockQuantity: true, baseUnit: true, lowStockAt: true, retailPrice: true },
+      select: { id: true, name: true, stockQuantity: true, baseUnit: true, lowStockAt: true, retailPrice: true, costPrice: true },
       orderBy: { stockQuantity: "asc" },
     }),
   ]);
@@ -73,9 +73,18 @@ export default async function ReportsPage({
   const totalCash = round2(cashFromSales + creditPayments);
   const salesTotal = round2(sales.reduce((sum, t) => sum + t.totalAmount, 0));
   const discountsGiven = round2(sales.reduce((sum, t) => sum + t.discountAmount, 0));
+  const cogs = round2(
+    sales.reduce((sum, t) => sum + t.items.reduce((lineSum, i) => lineSum + i.quantity * i.product.costPrice, 0), 0),
+  );
+  const profitToday = round2(salesTotal - cogs);
+  const profitMargin = salesTotal > 0 ? formatPercentage(profitToday / salesTotal) : null;
+  const missingCostProducts = new Set(
+    sales.flatMap((t) => t.items.filter((i) => i.product.costPrice <= 0).map((i) => i.product.name)),
+  ).size;
   const outstandingTotal = round2(outstanding._sum.currentBalance ?? 0);
   const lowStock = products.filter((p) => p.stockQuantity <= p.lowStockAt);
   const stockValue = round2(products.reduce((sum, p) => sum + p.stockQuantity * p.retailPrice, 0));
+  const stockValueCost = round2(products.reduce((sum, p) => sum + p.stockQuantity * p.costPrice, 0));
 
   const rows: ReportRowData[] = [];
   for (const t of sales) {
@@ -117,6 +126,7 @@ export default async function ReportsPage({
 
   const metrics: { label: string; value: number; sub: string; tone?: string }[] = [
     { label: "Cash from Sales", value: cashFromSales, sub: `${sales.length} bill${sales.length === 1 ? "" : "s"}` },
+    { label: "Profit Today", value: profitToday, sub: missingCostProducts > 0 ? `set cost prices — ${missingCostProducts} product${missingCostProducts === 1 ? "" : "s"} sold today have none` : profitMargin ? `≈ ${profitMargin} margin, after COGS` : "no sales to report", tone: "text-emerald-700" },
     { label: "Udharo Added", value: udharoAdded, sub: "credit given this day", tone: "text-amber-600" },
     { label: "Credit Payments", value: creditPayments, sub: `${payments.length} khata settlement${payments.length === 1 ? "" : "s"}`, tone: "text-emerald-700" },
     { label: "Discounts Given", value: discountsGiven, sub: "bhaansi off this day", tone: "text-rose-600" },
@@ -138,7 +148,7 @@ export default async function ReportsPage({
         <DateNav dateKey={dateKey} />
       </header>
 
-      <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {metrics.map((m) => (
           <div key={m.label} className="card p-4">
             <p className="text-sm font-semibold text-muted-foreground">{m.label}</p>
@@ -171,8 +181,9 @@ export default async function ReportsPage({
               <p className="mt-0.5 text-lg font-bold text-red-600">{formatNPR(outstandingTotal)}</p>
             </div>
             <div className="rounded-lg border border-border px-3 py-2.5">
-              <p className="text-xs text-muted-foreground">Stock value (retail)</p>
+              <p className="text-xs text-muted-foreground">Stock value</p>
               <p className="mt-0.5 text-lg font-bold">{formatNPR(stockValue)}</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">retail • cost {formatNPR(stockValueCost)}</p>
             </div>
           </div>
           <div className="mt-3">

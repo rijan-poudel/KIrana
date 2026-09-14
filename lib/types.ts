@@ -19,6 +19,7 @@ export type ProductCardData = {
   barcode: string | null;
   retailPrice: number;
   wholesalePrice: number;
+  costPrice: number; // purchase cost per base unit
   stockQuantity: number; // in base units
   baseUnit: string;
   lowStockAt: number;
@@ -43,6 +44,7 @@ export type ProductInput = {
   barcode: string;
   retailPrice: number;
   wholesalePrice: number;
+  costPrice: number; // purchase cost per base unit
   baseUnit: string;
   lowStockAt: number;
   openingStock: number; // create only; logged as an OPENING stock move
@@ -116,13 +118,16 @@ export type HistoryEntry = {
   }[];
 };
 
-/** Stock-ledger adjustment, entered in a product unit (COUNT = absolute base-unit stock). */
+/** Stock-ledger adjustment, entered in a product unit (COUNT = absolute base-unit stock).
+ * `costTotal` is only used on PURCHASE — the rupees paid for the lot, which updates the
+ * product's cost price (weighted average per base unit). */
 export type StockAdjustInput = {
   productId: string;
   mode: "PURCHASE" | "DAMAGE" | "RETURN" | "ADJUST" | "COUNT";
   quantity: number;
   unitName?: string;
   note?: string;
+  costTotal?: number;
 };
 
 export type StockMoveData = {

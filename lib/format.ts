@@ -24,6 +24,11 @@ export function formatQuantity(value: number): string {
   return dec ? `${grouped}.${dec}` : grouped;
 }
 
+/** "37%" — whole-percent margin/share, no floating-point drift. */
+export function formatPercentage(value: number): string {
+  return `${Math.round((value + Number.EPSILON) * 100)}%`;
+}
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** "12 Sep 2026" */

@@ -14,6 +14,7 @@ model Product {
   barcode          String?           @unique
   retailPrice      Float             // price per base unit
   wholesalePrice   Float             // price per base unit
+  costPrice        Float             @default(0) // purchase cost per base unit, for profit reports
   stockQuantity    Float             // always tracked in base units
   baseUnit         String            @default("pcs") // pcs, kg, liter — the unit stock is counted in
   lowStockAt       Float             @default(10) // per-product low-stock threshold (base units)

@@ -43,9 +43,12 @@ verified; ☐ items are next, roughly in priority order within each phase.
    per-bill Disc column, a "Discounts Given" metric, and the note in the void
    dialog. Stored on the transaction (`discountAmount` + `discountNote`), so
    voids reverse exactly what was charged.
-2. ☐ **Cost price per product + profit view** — add `costPrice`, default from
-   last purchase; Reports gains "profit today" (sales − cost of goods sold).
-   Needed before the shop can trust any business reports.
+2. ✅ **Cost price per product + profit view** — `costPrice` on every product
+   (entered on the product form, or auto-mantained by weighted average whenever
+   you record a purchase and type the total cost). Reports gains a **Profit
+   today** card (net sales − cost of goods sold, with a margin % and a warning
+   when some products sold today have no cost price), and Stock value now shows
+   the cost side too. The stock table shows cost + markup per product.
 3. ☐ **Held / parked bills** — park one customer's half-built bill and serve the
    next; restore with one tap (multi-cart).
 4. ☐ **Regular-customer quick billing** — pick the customer (or scan their tag)

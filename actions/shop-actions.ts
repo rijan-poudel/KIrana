@@ -69,12 +69,13 @@ function parseProductInput(input: ProductInput) {
   const barcode = (input.barcode ?? "").trim() || null;
   const retailPrice = round2(Number(input.retailPrice));
   const wholesalePrice = round2(Number(input.wholesalePrice));
+  const costPrice = round2(Number(input.costPrice ?? 0));
   const lowStockAt = Number(input.lowStockAt);
   const openingStock = Number(input.openingStock) || 0;
 
   if (!Number.isFinite(retailPrice) || retailPrice < 0) throw new Error("Retail price must be zero or more.");
   if (!Number.isFinite(wholesalePrice) || wholesalePrice < 0) throw new Error("Wholesale price must be zero or more.");
-  if (!Number.isFinite(lowStockAt) || lowStockAt < 0) throw new Error("Low-stock alert must be zero or more.");
+  if (!Number.isFinite(costPrice) || costPrice < 0) throw new Error("Cost price must be zero or more.");
   if (!Number.isFinite(openingStock) || openingStock < 0) throw new Error("Opening stock must be zero or more.");
 
   const rawUnits = Array.isArray(input.units) ? input.units : [];
@@ -95,7 +96,7 @@ function parseProductInput(input: ProductInput) {
     units.push({ name: unitName, factor });
   }
 
-  return { name, category, barcode, baseUnit, retailPrice, wholesalePrice, lowStockAt, openingStock, units };
+  return { name, category, barcode, baseUnit, retailPrice, wholesalePrice, costPrice, lowStockAt, openingStock, units };
 }
 
 export async function createProduct(input: ProductInput): Promise<ActionResult<{ id: string }>> {
@@ -109,6 +110,7 @@ export async function createProduct(input: ProductInput): Promise<ActionResult<{
         baseUnit: data.baseUnit,
         retailPrice: data.retailPrice,
         wholesalePrice: data.wholesalePrice,
+        costPrice: data.costPrice,
         lowStockAt: data.lowStockAt,
         stockQuantity: data.openingStock,
         units: { create: data.units },
@@ -146,6 +148,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<Ac
           baseUnit: data.baseUnit,
           retailPrice: data.retailPrice,
           wholesalePrice: data.wholesalePrice,
+          costPrice: data.costPrice,
           lowStockAt: data.lowStockAt,
           units: { deleteMany: {}, create: data.units },
         },
@@ -233,6 +236,22 @@ export async function adjustStock(input: StockAdjustInput): Promise<ActionResult
           quantity: moveQuantity,
         },
       });
+
+      if (mode === "PURCHASE") {
+        const costTotal = Number(input.costTotal ?? 0);
+        if (!Number.isFinite(costTotal) || costTotal < 0) throw new Error("Purchase cost must be zero or more.");
+        if (costTotal > 0) {
+          const perBaseCost = round2(costTotal / Math.abs(delta));
+          const newCost = round2(
+            (product.stockQuantity * product.costPrice + Math.abs(delta) * perBaseCost) /
+              (product.stockQuantity + Math.abs(delta)),
+          );
+          await tx.product.update({
+            where: { id: product.id },
+            data: { costPrice: newCost },
+          });
+        }
+      }
 
       return updated.stockQuantity;
     });
