@@ -62,15 +62,17 @@ model Customer {
 }
 
 model Transaction {
-  id            String            @id @default(cuid())
-  customerId    String?           // Nullable for cash walk-ins
-  type          String            // 'RETAIL' or 'WHOLESALE'
-  totalAmount   Float
-  paidAmount    Float
-  paymentStatus String            // 'PAID', 'UDHARO', 'PARTIAL'
-  createdAt     DateTime          @default(now())
-  customer      Customer?         @relation(fields: [customerId], references: [id])
-  items         TransactionItem[]
+  id             String            @id @default(cuid())
+  customerId     String?           // Nullable for cash walk-ins
+  type           String            // 'RETAIL' or 'WHOLESALE'
+  totalAmount    Float             // net of any discount
+  discountAmount Float             @default(0) // bhaansi given off this bill, in rupees
+  discountNote   String?           // e.g. "5% bhaansi" or why the discount was given
+  paidAmount     Float
+  paymentStatus  String            // 'PAID', 'UDHARO', 'PARTIAL'
+  createdAt      DateTime          @default(now())
+  customer       Customer?         @relation(fields: [customerId], references: [id])
+  items          TransactionItem[]
 }
 
 model TransactionItem {

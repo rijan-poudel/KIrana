@@ -443,7 +443,7 @@ export async function checkout(input: CheckoutInput): Promise<ActionResult<Check
       const productMap = new Map(products.map((p) => [p.id, p]));
 
       // Price every line from the database — never trust totals sent by the browser.
-      let totalAmount = 0;
+      let grossTotal = 0;
       const lines: CheckoutLineResult[] = [];
       for (const item of cartItems) {
         const quantity = Number(item.quantity);
@@ -457,7 +457,7 @@ export async function checkout(input: CheckoutInput): Promise<ActionResult<Check
 
         const unitPrice = type === "WHOLESALE" ? product.wholesalePrice : product.retailPrice;
         const subtotal = round2(unitPrice * baseQuantity);
-        totalAmount += subtotal;
+        grossTotal += subtotal;
         lines.push({
           productId: product.id,
           name: product.name,
@@ -469,7 +469,26 @@ export async function checkout(input: CheckoutInput): Promise<ActionResult<Check
           subtotal,
         });
       }
-      totalAmount = round2(totalAmount);
+      grossTotal = round2(grossTotal);
+
+      // Bhaansi: a flat rupee amount or a percent of the gross, folded into the
+      // bill before payment so the counter total always matches the drawer.
+      let discountAmount = 0;
+      let discountNote: string | null = null;
+      if (input.discount) {
+        const raw = Number(input.discount.value);
+        if (input.discount.type === "percent") {
+          if (!Number.isFinite(raw) || raw < 0 || raw > 100) {
+            throw new Error("Enter a discount between 0 and 100%.");
+          }
+          discountAmount = round2((grossTotal * raw) / 100);
+        } else {
+          if (!Number.isFinite(raw) || raw < 0) throw new Error("Discount amount must be zero or more.");
+          discountAmount = Math.min(round2(raw), grossTotal);
+        }
+        if (discountAmount > 0) discountNote = (input.discount.note ?? "").trim() || null;
+      }
+      const totalAmount = round2(grossTotal - discountAmount);
 
       let paidAmount = round2(Number(input.paidAmount) || 0);
       if (paidAmount < 0) throw new Error("Paid amount cannot be negative.");
@@ -496,6 +515,8 @@ export async function checkout(input: CheckoutInput): Promise<ActionResult<Check
           customerId,
           type,
           totalAmount,
+          discountAmount,
+          discountNote,
           paidAmount,
           paymentStatus,
           items: {
@@ -538,6 +559,9 @@ export async function checkout(input: CheckoutInput): Promise<ActionResult<Check
       return {
         transactionId: transaction.id,
         type,
+        grossTotal,
+        discountAmount,
+        discountNote,
         totalAmount,
         paidAmount,
         dueAmount,
@@ -612,6 +636,8 @@ export async function getCustomerHistory(customerId: string): Promise<ActionResu
       id: t.id,
       type: t.type,
       totalAmount: t.totalAmount,
+      discountAmount: t.discountAmount,
+      discountNote: t.discountNote,
       paidAmount: t.paidAmount,
       paymentStatus: t.paymentStatus,
       createdAt: t.createdAt.toISOString(),

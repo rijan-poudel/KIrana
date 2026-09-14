@@ -27,6 +27,12 @@ export default function Receipt({ data }: { data: ReceiptData }) {
         </div>
       ))}
       <div className="my-1 border-t border-dashed border-black/40" />
+      {(data.discountAmount ?? 0) > 0 && (
+        <div className="flex justify-between">
+          <span>DISCOUNT{data.discountNote ? ` (${data.discountNote})` : ""}</span>
+          <span>−{formatNPR(data.discountAmount ?? 0)}</span>
+        </div>
+      )}
       <div className="flex justify-between font-bold">
         <span>TOTAL</span>
         <span>{formatNPR(data.totalAmount)}</span>

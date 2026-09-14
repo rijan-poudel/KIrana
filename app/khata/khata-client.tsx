@@ -418,6 +418,12 @@ function HistoryDialog({ customer, onClose }: { customer: CustomerOption; onClos
                           </li>
                         ))}
                       </ul>
+                      {entry.discountAmount > 0 && (
+                        <p className="mt-1 text-xs font-semibold text-rose-600">
+                          Discount given: −{formatNPR(entry.discountAmount)}
+                          {entry.discountNote ? ` (${entry.discountNote})` : ""}
+                        </p>
+                      )}
                       <div className="mt-2 flex justify-between text-sm">
                         <span className="font-semibold text-foreground">Total {formatNPR(entry.totalAmount)}</span>
                         <span className="text-muted-foreground">

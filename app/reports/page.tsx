@@ -72,6 +72,7 @@ export default async function ReportsPage({
   const creditPayments = round2(payments.reduce((sum, p) => sum + p.totalAmount, 0));
   const totalCash = round2(cashFromSales + creditPayments);
   const salesTotal = round2(sales.reduce((sum, t) => sum + t.totalAmount, 0));
+  const discountsGiven = round2(sales.reduce((sum, t) => sum + t.discountAmount, 0));
   const outstandingTotal = round2(outstanding._sum.currentBalance ?? 0);
   const lowStock = products.filter((p) => p.stockQuantity <= p.lowStockAt);
   const stockValue = round2(products.reduce((sum, p) => sum + p.stockQuantity * p.retailPrice, 0));
@@ -92,6 +93,8 @@ export default async function ReportsPage({
         subtotal: i.subtotal,
       })),
       totalAmount: t.totalAmount,
+      discountAmount: t.discountAmount,
+      discountNote: t.discountNote,
       paidAmount: t.paidAmount,
       paymentStatus: t.paymentStatus,
     });
@@ -104,6 +107,8 @@ export default async function ReportsPage({
       customerName: p.customer?.name ?? null,
       items: [],
       totalAmount: p.totalAmount,
+      discountAmount: 0,
+      discountNote: null,
       paidAmount: p.totalAmount,
       paymentStatus: "PAID",
     });
@@ -114,6 +119,7 @@ export default async function ReportsPage({
     { label: "Cash from Sales", value: cashFromSales, sub: `${sales.length} bill${sales.length === 1 ? "" : "s"}` },
     { label: "Udharo Added", value: udharoAdded, sub: "credit given this day", tone: "text-amber-600" },
     { label: "Credit Payments", value: creditPayments, sub: `${payments.length} khata settlement${payments.length === 1 ? "" : "s"}`, tone: "text-emerald-700" },
+    { label: "Discounts Given", value: discountsGiven, sub: "bhaansi off this day", tone: "text-rose-600" },
     { label: "Total Cash in Hand", value: totalCash, sub: "count this in the cash drawer", tone: "text-foreground" },
   ];
 
@@ -132,7 +138,7 @@ export default async function ReportsPage({
         <DateNav dateKey={dateKey} />
       </header>
 
-      <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {metrics.map((m) => (
           <div key={m.label} className="card p-4">
             <p className="text-sm font-semibold text-muted-foreground">{m.label}</p>
@@ -147,8 +153,9 @@ export default async function ReportsPage({
           <div>
             <h2 className="text-lg font-bold text-foreground">Transactions of the day</h2>
             <p className="text-xs text-muted-foreground">
-              {rows.length} record{rows.length === 1 ? "" : "s"} • sales worth {formatNPR(salesTotal)} • use the ⋯ menu to
-              print a receipt again or void a wrong bill.
+              {rows.length} record{rows.length === 1 ? "" : "s"} • sales worth {formatNPR(salesTotal)}
+              {discountsGiven > 0 ? ` • ${formatNPR(discountsGiven)} bhaansi given` : ""} • use the ⋯ menu to print a
+              receipt again or void a wrong bill.
             </p>
           </div>
         </div>

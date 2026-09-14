@@ -1,7 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Banknote, CheckCircle2, HandCoins, Loader2, Printer, UserPlus } from "lucide-react";
+import {
+  AlertTriangle,
+  BadgePercent,
+  Banknote,
+  CheckCircle2,
+  HandCoins,
+  IndianRupee,
+  Loader2,
+  Printer,
+  UserPlus,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,6 +45,7 @@ export type CheckoutLine = {
 
 type PaymentChoice = "CASH" | "PARTIAL" | "UDHARO";
 type CustomerChoice = "existing" | "new";
+type DiscountKind = "none" | "flat" | "percent";
 
 const CASH_QUICK_FILLS = [500, 1000, 2000, 5000];
 
@@ -64,6 +75,9 @@ export default function CheckoutDialog({
   const [newAddress, setNewAddress] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<CheckoutResult | null>(null);
+  const [discountType, setDiscountType] = useState<DiscountKind>("none");
+  const [discountText, setDiscountText] = useState("");
+  const [discountNote, setDiscountNote] = useState("");
 
   // Regulars first so the everyday udharo customer is one tap away.
   const sortedCustomers = useMemo(
@@ -76,6 +90,9 @@ export default function CheckoutDialog({
     if (!open) return;
     setChoice("CASH");
     setPaidText(String(total));
+    setDiscountType("none");
+    setDiscountText("");
+    setDiscountNote("");
     setCustomerChoice(customers.length > 0 ? "existing" : "new");
     setCustomerId(sortedCustomers[0]?.id ?? "");
     setNewName("");
@@ -85,15 +102,26 @@ export default function CheckoutDialog({
     setResult(null);
   }, [open, total, customers, sortedCustomers]);
 
+  /** Rupees taken off the bill — from a flat amount or a % of the gross. */
+  const discountAmount = useMemo(() => {
+    if (discountType === "none") return 0;
+    const raw = Number.parseFloat(discountText);
+    if (Number.isNaN(raw) || raw < 0) return 0;
+    if (discountType === "percent") return round2((total * Math.min(raw, 100)) / 100);
+    return Math.min(round2(raw), total);
+  }, [discountType, discountText, total]);
+
+  const discountedTotal = useMemo(() => round2(total - discountAmount), [total, discountAmount]);
+
   const paidAmount = useMemo(() => {
-    if (choice === "CASH") return total;
+    if (choice === "CASH") return discountedTotal;
     if (choice === "UDHARO") return 0;
     const value = Number.parseFloat(paidText);
     if (Number.isNaN(value) || value < 0) return 0;
-    return Math.min(value, total);
-  }, [choice, paidText, total]);
+    return Math.min(value, discountedTotal);
+  }, [choice, paidText, discountedTotal]);
 
-  const dueAmount = round2(total - paidAmount);
+  const dueAmount = round2(discountedTotal - paidAmount);
   const needsCustomer = choice === "UDHARO" || (choice === "PARTIAL" && dueAmount > 0);
 
   const selectedCustomer = customers.find((c) => c.id === customerId) ?? null;
@@ -101,7 +129,7 @@ export default function CheckoutDialog({
     customerChoice === "new" ? newName.trim() || "the new customer" : selectedCustomer?.name ?? "the customer";
 
   async function submit() {
-    if (choice === "PARTIAL" && (paidAmount <= 0 || paidAmount >= total)) {
+    if (choice === "PARTIAL" && (paidAmount <= 0 || paidAmount >= discountedTotal)) {
       toast.error("For a partial payment, enter the cash received now (less than the bill total).");
       return;
     }
@@ -124,6 +152,19 @@ export default function CheckoutDialog({
           : null,
       items: lines.map((line) => ({ productId: line.productId, quantity: line.quantity, unitName: line.unitName })),
       paidAmount,
+      discount:
+        discountAmount > 0
+          ? {
+              type: discountType === "percent" ? "percent" : "flat",
+              // The voidable clamp already depends on this value — keep the
+              // server's 0–100% guard in sync with what the dialog showed.
+              value:
+                discountType === "percent"
+                  ? Math.min(Number.parseFloat(discountText), 100)
+                  : Number.parseFloat(discountText),
+              note: discountNote.trim() || null,
+            }
+          : null,
     });
     setSubmitting(false);
 
@@ -159,6 +200,8 @@ export default function CheckoutDialog({
                   createdAt: new Date().toISOString(),
                   type: mode === "wholesale" ? "WHOLESALE" : "RETAIL",
                   totalAmount: result.totalAmount,
+                  discountAmount: result.discountAmount,
+                  discountNote: result.discountNote,
                   paidAmount: result.paidAmount,
                   paymentStatus: result.paymentStatus,
                   customerLabel: customerLabel,
@@ -194,6 +237,12 @@ export default function CheckoutDialog({
                   </div>
                 ))}
                 <div className="mt-2 space-y-1 border-t border-dashed border-border pt-2 text-sm">
+                  {result.discountAmount > 0 && (
+                    <div className="flex justify-between text-rose-600">
+                      <span>Discount{result.discountNote ? ` (${result.discountNote})` : ""}</span>
+                      <span>−{formatNPR(result.discountAmount)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between font-semibold text-foreground">
                     <span>Total</span>
                     <span>{formatNPR(result.totalAmount)}</span>
@@ -235,10 +284,94 @@ export default function CheckoutDialog({
             </DialogHeader>
 
             <div className="mt-4 rounded-xl bg-primary p-4 text-primary-foreground">
-              <div className="flex items-baseline justify-between">
-                <span className="text-sm font-semibold opacity-80">Bill total</span>
-                <span className="text-3xl font-bold">{formatNPR(total)}</span>
+              {discountAmount > 0 && (
+                <div className="flex items-baseline justify-between text-sm opacity-75">
+                  <span>Bill total</span>
+                  <span className="line-through">{formatNPR(total)}</span>
+                </div>
+              )}
+              <div className="mt-0.5 flex items-baseline justify-between">
+                <span className="text-sm font-semibold opacity-80">
+                  {discountAmount > 0 ? "With discount" : "Bill total"}
+                </span>
+                <span className="text-3xl font-bold">{formatNPR(discountedTotal)}</span>
               </div>
+            </div>
+
+            <div className="mt-4">
+              <Label>Discount (bhaansi)</Label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDiscountType("none");
+                    setDiscountText("");
+                  }}
+                  aria-pressed={discountType === "none"}
+                  className={cn(
+                    "flex h-11 flex-col items-center justify-center rounded-lg border text-sm font-bold transition-colors",
+                    discountType === "none"
+                      ? "border-border bg-muted text-foreground"
+                      : "border-border bg-background text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  None
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDiscountType("flat")}
+                  aria-pressed={discountType === "flat"}
+                  className={cn(
+                    "flex h-11 flex-col items-center justify-center gap-0.5 rounded-lg border text-sm font-bold transition-colors",
+                    discountType === "flat"
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-background text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  <IndianRupee size={15} /> Rs. off
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDiscountType("percent")}
+                  aria-pressed={discountType === "percent"}
+                  className={cn(
+                    "flex h-11 flex-col items-center justify-center gap-0.5 rounded-lg border text-sm font-bold transition-colors",
+                    discountType === "percent"
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-background text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  <BadgePercent size={15} /> % off
+                </button>
+              </div>
+
+              {discountType !== "none" && (
+                <div className="mt-2 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      max={discountType === "percent" ? 100 : undefined}
+                      step="any"
+                      value={discountText}
+                      onChange={(e) => setDiscountText(e.target.value)}
+                      placeholder={discountType === "percent" ? "e.g. 5" : "e.g. 50"}
+                      aria-label={discountType === "percent" ? "Discount percent" : "Discount in rupees"}
+                      className="flex-1"
+                    />
+                    <span className="w-20 shrink-0 text-right text-xs font-semibold text-muted-foreground">
+                      {discountType === "percent" ? `% off → −${formatNPR(discountAmount)}` : `Rs. −${formatNPR(discountAmount)}`}
+                    </span>
+                  </div>
+                  <Input
+                    value={discountNote}
+                    onChange={(e) => setDiscountNote(e.target.value)}
+                    placeholder="Note (optional) — regular customer, damaged pack…"
+                    aria-label="Discount note"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="mt-4">
@@ -286,10 +419,10 @@ export default function CheckoutDialog({
             {choice === "CASH" && (
               <div className="mt-3">
                 <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
-                  Collect <strong>{formatNPR(total)}</strong> cash at the counter and hand over the goods.
+                  Collect <strong>{formatNPR(discountedTotal)}</strong> cash at the counter and hand over the goods.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {CASH_QUICK_FILLS.filter((v) => v < total).map((v) => (
+                  {CASH_QUICK_FILLS.filter((v) => v < discountedTotal).map((v) => (
                     <Button
                       key={v}
                       type="button"
@@ -315,7 +448,7 @@ export default function CheckoutDialog({
                   type="number"
                   inputMode="decimal"
                   min={0}
-                  max={total}
+                  max={discountedTotal}
                   step="0.01"
                   value={paidText}
                   onChange={(e) => setPaidText(e.target.value)}
@@ -330,7 +463,7 @@ export default function CheckoutDialog({
 
             {choice === "UDHARO" && (
               <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
-                The full {formatNPR(total)} goes on {customerLabel}&apos;s khata. Pick the customer below.
+                The full {formatNPR(discountedTotal)} goes on {customerLabel}&apos;s khata. Pick the customer below.
               </p>
             )}
 
@@ -402,8 +535,8 @@ export default function CheckoutDialog({
               {submitting
                 ? "Saving…"
                 : dueAmount > 0
-                  ? `Complete sale — ${formatNPR(total)} (${formatNPR(dueAmount)} udharo)`
-                  : `Complete sale — ${formatNPR(total)}`}
+                  ? `Complete sale — ${formatNPR(discountedTotal)} (${formatNPR(dueAmount)} udharo)`
+                  : `Complete sale — ${formatNPR(discountedTotal)}`}
             </Button>
           </form>
         )}

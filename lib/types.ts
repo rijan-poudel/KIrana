@@ -61,12 +61,16 @@ export type CheckoutLineInput = {
   unitName?: string; // omit = product base unit
 };
 
+/** Bhaansi choice applied to a whole bill. `value` is rupees (flat) or a percent. */
+export type BillDiscount = { type: "flat" | "percent"; value: number; note?: string | null };
+
 export type CheckoutInput = {
   type: "RETAIL" | "WHOLESALE";
   customerId: string | null;
   newCustomer: { name: string; phone: string; address: string } | null;
   items: CheckoutLineInput[];
   paidAmount: number;
+  discount?: BillDiscount | null;
 };
 
 export type CheckoutLineResult = {
@@ -83,7 +87,10 @@ export type CheckoutLineResult = {
 export type CheckoutResult = {
   transactionId: string;
   type: string;
-  totalAmount: number;
+  grossTotal: number; // before any discount
+  discountAmount: number; // bhaansi taken off, in rupees
+  discountNote: string | null;
+  totalAmount: number; // net of discount — what actually gets paid/keditised
   paidAmount: number;
   dueAmount: number;
   paymentStatus: string;
@@ -94,6 +101,8 @@ export type HistoryEntry = {
   id: string;
   type: string;
   totalAmount: number;
+  discountAmount: number;
+  discountNote: string | null;
   paidAmount: number;
   paymentStatus: string;
   createdAt: string;
@@ -167,6 +176,8 @@ export type ReceiptData = {
   createdAt: string; // ISO
   type: string; // RETAIL | WHOLESALE
   totalAmount: number;
+  discountAmount?: number; // bhaansi taken off, in rupees
+  discountNote?: string | null;
   paidAmount: number;
   paymentStatus: string;
   customerLabel: string | null;
@@ -181,6 +192,8 @@ export type ReportRowData = {
   customerName: string | null;
   items: ReceiptLine[];
   totalAmount: number;
+  discountAmount: number;
+  discountNote: string | null;
   paidAmount: number;
   paymentStatus: string;
 };

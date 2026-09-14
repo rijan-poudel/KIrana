@@ -65,6 +65,7 @@ export default function TransactionsTable({ rows }: { rows: ReportRowData[] }) {
               <th className="px-4 py-2.5 font-semibold">Details</th>
               <th className="px-4 py-2.5 text-right font-semibold">Total</th>
               <th className="hidden px-4 py-2.5 text-right font-semibold md:table-cell">Paid</th>
+              <th className="hidden px-4 py-2.5 text-right font-semibold lg:table-cell">Disc</th>
               <th className="px-4 py-2.5 font-semibold">Status</th>
               <th className="px-4 py-2.5 text-right font-semibold">
                 <span className="sr-only">Actions</span>
@@ -91,6 +92,12 @@ export default function TransactionsTable({ rows }: { rows: ReportRowData[] }) {
                 </td>
                 <td className="hidden px-4 py-2.5 text-right whitespace-nowrap text-foreground/80 md:table-cell">
                   {formatNPR(row.paidAmount)}
+                </td>
+                <td
+                  className="hidden px-4 py-2.5 text-right whitespace-nowrap text-rose-600 lg:table-cell"
+                  title={row.discountNote ?? undefined}
+                >
+                  {row.discountAmount > 0 ? `−${formatNPR(row.discountAmount)}` : <span className="text-muted-foreground/50">—</span>}
                 </td>
                 <td className="px-4 py-2.5">
                   <Badge
@@ -145,6 +152,12 @@ export default function TransactionsTable({ rows }: { rows: ReportRowData[] }) {
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {voidTarget.items.map((item) => `${formatQuantity(item.quantity)} ${item.name}`).join(", ")}
               </p>
+              {voidTarget.discountAmount > 0 && (
+                <p className="mt-0.5 text-xs font-semibold text-rose-600">
+                  Discount given: −{formatNPR(voidTarget.discountAmount)}
+                  {voidTarget.discountNote ? ` (${voidTarget.discountNote})` : ""}
+                </p>
+              )}
             </div>
           )}
           <DialogFooter>
@@ -175,6 +188,8 @@ export default function TransactionsTable({ rows }: { rows: ReportRowData[] }) {
                       createdAt: printTarget.time,
                       type: printTarget.typeLabel,
                       totalAmount: printTarget.totalAmount,
+                      discountAmount: printTarget.discountAmount,
+                      discountNote: printTarget.discountNote,
                       paidAmount: printTarget.paidAmount,
                       paymentStatus: printTarget.paymentStatus,
                       customerLabel: printTarget.customerName,

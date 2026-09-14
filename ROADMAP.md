@@ -35,9 +35,14 @@ verified; ☐ items are next, roughly in priority order within each phase.
 
 ## Phase 2 — Daily-driver completeness (next)
 
-1. ☐ **Bill discounts** — flat or % discount per bill (and optionally per line);
-   shows on receipt and reports. Shops give bhaansi daily; without this the
-   counter total and the cash drawer will disagree.
+1. ✅ **Bill discounts** — flat (Rs.) or % bhaansi off a whole bill from the
+   checkout dialog: tap Rs. off / % off, type the amount, optional note
+   ("regular customer", "damaged pack"). The discount folds into the total
+   before payment, so the counter total and the cash drawer always agree.
+   Receipts print a DISCOUNT line above the net TOTAL; the day report shows a
+   per-bill Disc column, a "Discounts Given" metric, and the note in the void
+   dialog. Stored on the transaction (`discountAmount` + `discountNote`), so
+   voids reverse exactly what was charged.
 2. ☐ **Cost price per product + profit view** — add `costPrice`, default from
    last purchase; Reports gains "profit today" (sales − cost of goods sold).
    Needed before the shop can trust any business reports.
