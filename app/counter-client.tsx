@@ -2,20 +2,30 @@
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Minus, PackageSearch, Plus, ScanBarcode, Search, ShoppingCart, Trash2 } from "lucide-react";
+import { Minus, PackageSearch, Pause, Plus, RotateCcw, ScanBarcode, Search, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { CustomerOption, PriceMode, ProductCardData } from "@/lib/types";
-import { formatNPR, formatQuantity, round2 } from "@/lib/format";
+import { formatNPR, formatQuantity, formatTime, round2 } from "@/lib/format";
 import { CART_STORAGE_KEY } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import CheckoutDialog, { type CheckoutLine } from "./checkout-dialog";
 import ScanDialog from "./scan-dialog";
 
 type CartLine = { productId: string; quantity: number; unitName: string };
+
+/** A bill parked mid-build while the shopkeeper serves the next customer. */
+type HeldBill = {
+  id: string;
+  label: string; // name of the highest-value line, so it's recognisable at a glance
+  mode: PriceMode;
+  cart: CartLine[];
+  total: number; // computed when held — display only
+  heldAt: number;
+};
 
 /** All sellable units of a product: the base unit plus every configured pack size. */
 export function unitOptions(product: ProductCardData) {
@@ -38,6 +48,7 @@ export default function CounterClient({
   const router = useRouter();
   const [mode, setMode] = useState<PriceMode>("retail");
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [heldBills, setHeldBills] = useState<HeldBill[]>([]);
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
@@ -51,15 +62,15 @@ export default function CounterClient({
 
   const productMap = useMemo(() => new Map(products.map((p) => [p.id, p] as const)), [products]);
 
-  // Restore the in-progress bill exactly once on mount — a refresh mid-transaction
-  // must never wipe the counter cart.
+  // Restore the in-progress bill and any parked bills exactly once on mount —
+  // a refresh mid-transaction must never wipe the counter cart.
   useEffect(() => {
     if (loadedRef.current) return;
     loadedRef.current = true;
     try {
       const raw = window.localStorage.getItem(CART_STORAGE_KEY);
       if (!raw) return;
-      const parsed = JSON.parse(raw) as { mode?: PriceMode; cart?: CartLine[] };
+      const parsed = JSON.parse(raw) as { mode?: PriceMode; cart?: CartLine[]; held?: HeldBill[] };
       if (parsed.mode === "retail" || parsed.mode === "wholesale") setMode(parsed.mode);
       if (Array.isArray(parsed.cart)) {
         const restored: CartLine[] = [];
@@ -74,19 +85,35 @@ export default function CounterClient({
         }
         setCart(restored);
       }
+      if (Array.isArray(parsed.held)) {
+        const held: HeldBill[] = [];
+        for (const bill of parsed.held) {
+          if (typeof bill?.id !== "string" || !Array.isArray(bill.cart) || bill.cart.length === 0) continue;
+          const modeOk = bill.mode === "retail" || bill.mode === "wholesale";
+          held.push({
+            id: bill.id,
+            label: typeof bill.label === "string" && bill.label.trim() ? bill.label : "Held bill",
+            mode: modeOk ? bill.mode : "retail",
+            cart: bill.cart,
+            total: Number(bill.total) || 0,
+            heldAt: Number(bill.heldAt) || Date.now(),
+          });
+        }
+        setHeldBills(held);
+      }
     } catch {
       // Corrupted saved cart — start with a clean basket instead of crashing.
     }
   }, [productMap]);
 
-  // Persist every cart change so the bill survives accidental refreshes.
+  // Persist every cart change so the bill (and any parked bills) survive refreshes.
   useEffect(() => {
     try {
-      window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify({ mode, cart }));
+      window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify({ mode, cart, held: heldBills }));
     } catch {
       // Storage unavailable — billing still works, it just won't survive a refresh.
     }
-  }, [mode, cart]);
+  }, [mode, cart, heldBills]);
 
   // F2 opens checkout from anywhere on the counter.
   useEffect(() => {
@@ -248,6 +275,72 @@ export default function CounterClient({
     const exact = products.find((p) => (p.barcode ?? "").toLowerCase() === typed);
     const target = exact ?? filtered[0];
     if (target) addFromSearch(target);
+  }
+
+  /** "Bora Chawal" — the name of the line contributing the most money. */
+  function describeCart() {
+    let label = "Bill";
+    let best = -1;
+    for (const line of cart) {
+      const product = productMap.get(line.productId);
+      if (!product) continue;
+      const subtotal = round2(
+        (mode === "wholesale" ? product.wholesalePrice : product.retailPrice) *
+          line.quantity *
+          unitFactor(product, line.unitName),
+      );
+      if (subtotal > best) {
+        best = subtotal;
+        label = product.name;
+      }
+    }
+    return { label, total: best >= 0 ? best : cartTotal };
+  }
+
+  /** Park the current bill so the next customer can be served. */
+  function holdBill() {
+    if (cart.length === 0) return;
+    const { label, total } = describeCart();
+    setHeldBills((prev) => [
+      ...prev,
+      { id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`, label, mode, cart, total, heldAt: Date.now() },
+    ]);
+    setCart([]);
+    toast.success(`“${label}” held — the next customer is up.`);
+  }
+
+  /** Bring a parked bill back. If a new bill is half-built, hold it first. */
+  function restoreHeld(id: string) {
+    const held = heldBills.find((h) => h.id === id);
+    if (!held) return;
+    if (cart.length > 0) {
+      const { label, total } = describeCart();
+      setHeldBills((prev) => [
+        ...prev.filter((h) => h.id !== id),
+        { id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`, label, mode, cart, total, heldAt: Date.now() },
+      ]);
+    } else {
+      setHeldBills((prev) => prev.filter((h) => h.id !== id));
+    }
+    const restored: CartLine[] = [];
+    for (const line of held.cart) {
+      const product = productMap.get(line.productId);
+      if (!product) continue;
+      const unit = unitOptions(product).find((u) => u.name === line.unitName) ?? unitOptions(product)[0];
+      const quantity = Number(line.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) continue;
+      const capped = Math.min(quantity, product.stockQuantity / unit.factor);
+      if (capped > 0) restored.push({ productId: product.id, quantity: capped, unitName: unit.name });
+    }
+    setMode(held.mode);
+    setCart(restored);
+    toast.success(`“${held.label}” restored to the counter.`);
+  }
+
+  function dropHeld(id: string) {
+    const held = heldBills.find((h) => h.id === id);
+    setHeldBills((prev) => prev.filter((h) => h.id !== id));
+    if (held) toast.success(`Held bill “${held.label}” removed.`);
   }
 
   function handleCheckoutSuccess() {
@@ -529,17 +622,69 @@ export default function CounterClient({
                 <span className="text-base font-semibold text-muted-foreground">Total</span>
                 <span className="text-2xl font-bold text-foreground">{formatNPR(cartTotal)}</span>
               </div>
-              <Button
-                type="button"
-                size="lg"
-                disabled={cartLines.length === 0}
-                onClick={() => setCheckoutOpen(true)}
-                className="mt-3 h-14 w-full text-lg"
-              >
-                <ShoppingCart /> Checkout <span className="text-xs font-normal opacity-70">F2</span>
-              </Button>
+              <div className="mt-3 flex gap-2">
+                <Button
+                  type="button"
+                  size="lg"
+                  variant="outline"
+                  disabled={cartLines.length === 0}
+                  onClick={holdBill}
+                  className="h-14 flex-1"
+                  title="Park this bill and serve the next customer — bring it back anytime with Restore."
+                >
+                  <Pause /> Hold
+                </Button>
+                <Button
+                  type="button"
+                  size="lg"
+                  disabled={cartLines.length === 0}
+                  onClick={() => setCheckoutOpen(true)}
+                  className="h-14 flex-1 text-lg"
+                >
+                  <ShoppingCart /> Checkout <span className="text-xs font-normal opacity-70">F2</span>
+                </Button>
+              </div>
             </div>
           </div>
+
+          {heldBills.length > 0 && (
+            <section className="card mt-4 p-4" aria-label="Held bills">
+              <h2 className="text-base font-bold text-foreground">
+                Held bills <span className="text-muted-foreground">({heldBills.length})</span>
+              </h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Parked while you served somebody else — tap Restore to bring one back to the counter.
+              </p>
+              <div className="mt-3 space-y-2">
+                {heldBills.map((held) => (
+                  <div key={held.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-3 py-2.5">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-foreground">{held.label}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {formatNPR(held.total)} • {held.cart.length} item{held.cart.length === 1 ? "" : "s"} • held{" "}
+                        {formatTime(new Date(held.heldAt))}
+                        {held.mode === "wholesale" ? " • wholesale" : ""}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button variant="outline" size="sm" className="h-8" onClick={() => restoreHeld(held.id)}>
+                        <RotateCcw /> Restore
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Delete held bill ${held.label}`}
+                        className="hover:text-red-600"
+                        onClick={() => dropHeld(held.id)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
         </aside>
       </div>
 

@@ -49,8 +49,12 @@ verified; ☐ items are next, roughly in priority order within each phase.
    today** card (net sales − cost of goods sold, with a margin % and a warning
    when some products sold today have no cost price), and Stock value now shows
    the cost side too. The stock table shows cost + markup per product.
-3. ☐ **Held / parked bills** — park one customer's half-built bill and serve the
-   next; restore with one tap (multi-cart).
+3. ✅ **Held / parked bills** — a "Hold" button parks the half-built bill
+   (labelled by its top item, with total + time held) and clears the counter for
+   the next customer. Parked bills sit in a Held-bills panel on the counter with
+   one-tap **Restore** (it even auto-parks the current bill first so nothing is
+   lost), plus a remove button. Bills and held bills both survive refreshes/
+   crashes via localStorage.
 4. ☐ **Regular-customer quick billing** — pick the customer (or scan their tag)
    *before* building the bill; the checkout dialog then skips the customer step.
 5. ☐ **Searchable customer picker** in checkout (Command palette) — a Select with
