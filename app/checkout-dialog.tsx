@@ -332,7 +332,7 @@ export default function CheckoutDialog({
               </DialogDescription>
             </DialogHeader>
 
-            <div className="mt-4 overflow-hidden rounded-2xl bg-gradient-to-br from-primary to-[oklch(0.38_0.09_156)] p-4 text-primary-foreground shadow-lg shadow-primary/25">
+            <div className="mt-4 overflow-hidden rounded-2xl bg-gradient-to-br from-primary to-[#46a302] p-4 text-primary-foreground shadow-lg shadow-primary/25">
               {discountAmount > 0 && (
                 <div className="flex items-baseline justify-between text-sm opacity-75">
                   <span>Bill total</span>
