@@ -272,7 +272,7 @@ export default function CheckoutDialog({
                 Receipt #{result.transactionId.slice(-8).toUpperCase()}
               </p>
 
-              <div className="mt-4 rounded-2xl border border-border bg-card p-4 text-left shadow-sm">
+              <div className="mt-4 rounded-2xl border-2 border-faded-gray bg-card p-4 text-left">
                 {result.lines.map((line) => (
                   <div key={`${line.productId}-${line.unitName}`} className="flex items-baseline justify-between py-1 text-sm">
                     <span className="min-w-0 text-muted-foreground">

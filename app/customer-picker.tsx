@@ -142,7 +142,7 @@ export default function CustomerPicker({
       </button>
 
       {open && (
-        <div className="absolute z-50 mt-1.5 overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg">
+        <div className="absolute z-50 mt-1.5 overflow-hidden rounded-xl border-2 border-faded-gray bg-popover text-popover-foreground shadow-lg">
           <div className="relative border-b border-border p-2">
             <Search size={15} className="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-muted-foreground" />
             <Input
