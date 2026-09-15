@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
-import type { DeliveryLogData } from "@/lib/types";
+import { getDeliveries } from "@/actions/shop-actions";
+import type { DeliveryLogData, CustomerOption, ProductCardData } from "@/lib/types";
 import DeliveryClient from "./delivery-client";
 
 export const dynamic = "force-dynamic";
@@ -7,17 +8,42 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Delivery Tracker" };
 
 export default async function DeliveryPage() {
-  const logs = await prisma.deliveryLog.findMany({ orderBy: { createdAt: "desc" } });
+  const [deliveryResult, customersRaw, productsRaw] = await Promise.all([
+    getDeliveries(),
+    prisma.customer.findMany({ orderBy: [{ currentBalance: "desc" }, { name: "asc" }] }),
+    prisma.product.findMany({
+      orderBy: { name: "asc" },
+      include: { units: true },
+    }),
+  ]);
 
-  const data: DeliveryLogData[] = logs.map((log) => ({
-    id: log.id,
-    driverName: log.driverName,
-    destinationClient: log.destinationClient,
-    itemsSummary: log.itemsSummary,
-    totalValue: log.totalValue,
-    status: log.status,
-    createdAt: log.createdAt.toISOString(),
+  const logs: DeliveryLogData[] = deliveryResult.ok ? deliveryResult.data : [];
+
+  const customers: CustomerOption[] = customersRaw.map((c) => ({
+    id: c.id,
+    name: c.name,
+    phone: c.phone,
+    address: c.address,
+    currentBalance: c.currentBalance,
+    isFavorite: c.isFavorite,
   }));
 
-  return <DeliveryClient logs={data} />;
+  const products: ProductCardData[] = productsRaw.map((p) => ({
+    id: p.id,
+    name: p.name,
+    category: p.category,
+    barcode: p.barcode,
+    retailPrice: p.retailPrice,
+    wholesalePrice: p.wholesalePrice,
+    costPrice: p.costPrice,
+    sellAs: p.sellAs as "RETAIL" | "WHOLESALE" | "BOTH",
+    stockQuantity: p.stockQuantity,
+    baseUnit: p.baseUnit,
+    lowStockAt: p.lowStockAt,
+    manufacturingDate: p.manufacturingDate?.toISOString() ?? null,
+    expiryDate: p.expiryDate?.toISOString() ?? null,
+    units: p.units.map((u) => ({ id: u.id, name: u.name, factor: u.factor })),
+  }));
+
+  return <DeliveryClient logs={logs} customers={customers} products={products} />;
 }

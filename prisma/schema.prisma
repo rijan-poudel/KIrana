@@ -15,14 +15,18 @@ model Product {
   retailPrice      Float             // price per base unit
   wholesalePrice   Float             // price per base unit
   costPrice        Float             @default(0) // purchase cost per base unit, for profit reports
+  sellAs           String            @default("BOTH") // RETAIL | WHOLESALE | BOTH — who this item is sold to
   stockQuantity    Float             // always tracked in base units
   baseUnit         String            @default("pcs") // pcs, kg, liter — the unit stock is counted in
   lowStockAt       Float             @default(10) // per-product low-stock threshold (base units)
+  manufacturingDate DateTime?       // when this batch was manufactured
+  expiryDate        DateTime?       // when this batch expires
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   units            ProductUnit[]
   transactionItems TransactionItem[]
   stockMoves       StockMove[]
+  deliveryItems    DeliveryItem[]
 }
 
 /// A sellable pack size above/below the base unit: "Carton" ×30 pcs, "Dozen" ×12, "gram" ×0.001…
@@ -60,6 +64,7 @@ model Customer {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   transactions   Transaction[]
+  deliveries     DeliveryLog[]
 }
 
 model Transaction {
@@ -89,11 +94,39 @@ model TransactionItem {
 }
 
 model DeliveryLog {
-  id                String   @id @default(cuid())
+  id                String        @id @default(cuid())
   driverName        String
+  driverPhone       String?
+  vehicleNumber     String?
   destinationClient String
+  customerId        String?
+  customer          Customer?     @relation(fields: [customerId], references: [id])
+  scheduledAt       DateTime?
+  startedAt         DateTime?
+  deliveredAt       DateTime?
   itemsSummary      String
   totalValue        Float
-  status            String   // 'PENDING', 'DELIVERED', 'SETTLED'
-  createdAt         DateTime @default(now())
+  status            String        // 'PENDING', 'ASSIGNED', 'LOADED', 'IN_TRANSIT', 'DELIVERED', 'SETTLED', 'RETURNED', 'CANCELLED'
+  proofOfDelivery   String?
+  deliveryNotes     String?
+  settlementNotes   String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  items             DeliveryItem[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([scheduledAt])
+}
+
+model DeliveryItem {
+  id            String       @id @default(cuid())
+  deliveryLogId String
+  deliveryLog   DeliveryLog  @relation(fields: [deliveryLogId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product      @relation(fields: [productId], references: [id])
+  quantity      Float        // in base units
+  unitName      String       // unit billed in
+  unitPrice     Float        // price at delivery time
+  subtotal      Float
 }

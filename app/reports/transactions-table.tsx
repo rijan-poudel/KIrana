@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Loader2, MoreHorizontal, Printer, Undo2 } from "lucide-react";
+import { AlertTriangle, Loader2, MoreHorizontal, Pencil, Printer, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,17 +22,27 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { voidTransaction } from "@/actions/shop-actions";
 import { formatNPR, formatQuantity, formatTime } from "@/lib/format";
-import type { ReportRowData } from "@/lib/types";
+import type { CustomerOption, ProductCardData, ReportRowData } from "@/lib/types";
 import Receipt from "../receipt";
+import EditBillDialog from "./edit-bill-dialog";
 
 /**
  * The day's transactions with per-row fixes: print the receipt again, or void
  * a wrongly-entered bill (restocks items and reverses the khata automatically).
  */
-export default function TransactionsTable({ rows }: { rows: ReportRowData[] }) {
+export default function TransactionsTable({
+  rows,
+  products,
+  customers,
+}: {
+  rows: ReportRowData[];
+  products: ProductCardData[];
+  customers: CustomerOption[];
+}) {
   const router = useRouter();
   const [voidTarget, setVoidTarget] = useState<ReportRowData | null>(null);
   const [printTarget, setPrintTarget] = useState<ReportRowData | null>(null);
+  const [editTarget, setEditTarget] = useState<ReportRowData | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function handleVoid() {
@@ -118,6 +128,11 @@ export default function TransactionsTable({ rows }: { rows: ReportRowData[] }) {
                       }
                     />
                     <DropdownMenuContent align="end">
+                      {row.typeLabel !== "PAYMENT" && (
+                        <DropdownMenuItem onClick={() => setEditTarget(row)}>
+                          <Pencil /> Edit bill (fix lines)
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem onClick={() => setPrintTarget(row)}>
                         <Printer /> Print receipt again
                       </DropdownMenuItem>
@@ -132,6 +147,19 @@ export default function TransactionsTable({ rows }: { rows: ReportRowData[] }) {
           </tbody>
         </table>
       </div>
+
+      {/* Edit bill — fixes lines in place, same receipt number */}
+      <EditBillDialog
+        open={!!editTarget}
+        bill={editTarget}
+        products={products}
+        customers={customers}
+        onOpenChange={(next) => !next && setEditTarget(null)}
+        onSaved={() => {
+          setEditTarget(null);
+          router.refresh();
+        }}
+      />
 
       {/* Void confirmation */}
       <Dialog open={!!voidTarget} onOpenChange={(next) => !next && setVoidTarget(null)}>

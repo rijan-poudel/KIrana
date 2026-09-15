@@ -23,13 +23,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FormField, parseInputNumber, parseOptionalNumber } from "@/components/form-field";
 import type { CheckoutResult, CustomerOption, PriceMode } from "@/lib/types";
 import { formatNPR, formatQuantity, round2 } from "@/lib/format";
 import { checkout } from "@/actions/shop-actions";
 import Receipt from "./receipt";
 import CustomerPicker from "./customer-picker";
 import { cn } from "@/lib/utils";
+
+/** Safe numeric coercion using the parse helper — 0 for invalid/empty input. */
+function num(s: string): number {
+  const r = parseOptionalNumber(s);
+  return "error" in r || r.value === null ? 0 : r.value;
+}
 
 export type CheckoutLine = {
   productId: string;
@@ -39,8 +45,10 @@ export type CheckoutLine = {
   factor: number;
   baseUnit: string;
   baseQuantity: number;
-  unitPrice: number; // per base unit
+  unitPrice: number; // per base unit (after any counter rate override)
   subtotal: number;
+  rate: number; // per chosen unit, exactly as shown on the bill
+  lineDiscount: number; // per-line bhaansi in rupees
 };
 
 type PaymentChoice = "CASH" | "PARTIAL" | "UDHARO";
@@ -80,6 +88,7 @@ export default function CheckoutDialog({
   const [discountType, setDiscountType] = useState<DiscountKind>("none");
   const [discountText, setDiscountText] = useState("");
   const [discountNote, setDiscountNote] = useState("");
+  const [errors, setErrors] = useState<{ discount?: string; paid?: string }>({});
 
   // Fresh state every time the modal opens. Gated on the closed→open transition:
   // server actions re-validate the page while the dialog is open, which hands the
@@ -111,8 +120,8 @@ export default function CheckoutDialog({
   /** Rupees taken off the bill — from a flat amount or a % of the gross. */
   const discountAmount = useMemo(() => {
     if (discountType === "none") return 0;
-    const raw = Number.parseFloat(discountText);
-    if (Number.isNaN(raw) || raw < 0) return 0;
+    const raw = num(discountText);
+    if (raw < 0) return 0;
     if (discountType === "percent") return round2((total * Math.min(raw, 100)) / 100);
     return Math.min(round2(raw), total);
   }, [discountType, discountText, total]);
@@ -122,8 +131,8 @@ export default function CheckoutDialog({
   const paidAmount = useMemo(() => {
     if (choice === "CASH") return discountedTotal;
     if (choice === "UDHARO") return 0;
-    const value = Number.parseFloat(paidText);
-    if (Number.isNaN(value) || value < 0) return 0;
+    const value = num(paidText);
+    if (value < 0) return 0;
     return Math.min(value, discountedTotal);
   }, [choice, paidText, discountedTotal]);
 
@@ -134,7 +143,26 @@ export default function CheckoutDialog({
   const customerLabel =
     customerChoice === "new" ? newName.trim() || "the new customer" : selectedCustomer?.name ?? "the customer";
 
+  /** Validate discount + paid fields; returns null when everything is fine. */
+  function validate(): boolean {
+    const errs: { discount?: string; paid?: string } = {};
+    if (discountType !== "none" && discountText.trim() !== "") {
+      const parsed = parseInputNumber(discountText);
+      if ("error" in parsed) errs.discount = parsed.error;
+      else if (parsed.value < 0) errs.discount = "Cannot be negative.";
+      else if (discountType === "percent" && parsed.value > 100) errs.discount = "Percent cannot exceed 100.";
+    }
+    if (choice === "PARTIAL" && paidText.trim() !== "") {
+      const parsed = parseInputNumber(paidText);
+      if ("error" in parsed) errs.paid = parsed.error;
+      else if (parsed.value < 0) errs.paid = "Cannot be negative.";
+    }
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  }
+
   async function submit() {
+    if (!validate()) return;
     if (choice === "PARTIAL" && (paidAmount <= 0 || paidAmount >= discountedTotal)) {
       toast.error("For a partial payment, enter the cash received now (less than the bill total).");
       return;
@@ -159,7 +187,15 @@ export default function CheckoutDialog({
         needsCustomer && customerChoice === "new"
           ? { name: newName.trim(), phone: newPhone.trim(), address: newAddress.trim() }
           : null,
-      items: lines.map((line) => ({ productId: line.productId, quantity: line.quantity, unitName: line.unitName })),
+      items: lines.map((line) => ({
+        productId: line.productId,
+        quantity: line.quantity,
+        unitName: line.unitName,
+        // The rate shown on the counter bill is the contract — send it so the
+        // ledger charges exactly what the shopkeeper and customer agreed on.
+        unitPrice: line.unitPrice,
+        discount: line.lineDiscount > 0 ? line.lineDiscount : undefined,
+      })),
       paidAmount,
       discount:
         discountAmount > 0
@@ -169,8 +205,8 @@ export default function CheckoutDialog({
               // server's 0–100% guard in sync with what the dialog showed.
               value:
                 discountType === "percent"
-                  ? Math.min(Number.parseFloat(discountText), 100)
-                  : Number.parseFloat(discountText),
+                  ? Math.min(num(discountText), 100)
+                  : num(discountText),
               note: discountNote.trim() || null,
             }
           : null,
@@ -228,13 +264,15 @@ export default function CheckoutDialog({
               />
             </div>
             <div className="text-center">
-              <CheckCircle2 size={48} className="mx-auto text-emerald-600" />
-              <h2 className="mt-2 text-2xl font-bold text-foreground">Sale complete!</h2>
+              <span className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100 shadow-lg shadow-emerald-600/15">
+                <CheckCircle2 size={44} className="text-emerald-600" />
+              </span>
+              <h2 className="mt-3 text-2xl font-bold text-foreground">Sale complete!</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Receipt #{result.transactionId.slice(-8).toUpperCase()}
               </p>
 
-              <div className="mt-4 rounded-xl border border-border p-4 text-left">
+              <div className="mt-4 rounded-2xl border border-border bg-card p-4 text-left shadow-sm">
                 {result.lines.map((line) => (
                   <div key={`${line.productId}-${line.unitName}`} className="flex items-baseline justify-between py-1 text-sm">
                     <span className="min-w-0 text-muted-foreground">
@@ -276,7 +314,7 @@ export default function CheckoutDialog({
                 <Printer /> Print receipt
               </Button>
               <Button autoFocus onClick={() => onSuccess()}>
-                New sale (Enter)
+                New sale <span className="font-normal opacity-70">(Enter)</span>
               </Button>
             </DialogFooter>
           </>
@@ -294,7 +332,7 @@ export default function CheckoutDialog({
               </DialogDescription>
             </DialogHeader>
 
-            <div className="mt-4 rounded-xl bg-primary p-4 text-primary-foreground">
+            <div className="mt-4 overflow-hidden rounded-2xl bg-gradient-to-br from-primary to-[oklch(0.38_0.09_156)] p-4 text-primary-foreground shadow-lg shadow-primary/25">
               {discountAmount > 0 && (
                 <div className="flex items-baseline justify-between text-sm opacity-75">
                   <span>Bill total</span>
@@ -305,126 +343,155 @@ export default function CheckoutDialog({
                 <span className="text-sm font-semibold opacity-80">
                   {discountAmount > 0 ? "With discount" : "Bill total"}
                 </span>
-                <span className="text-3xl font-bold">{formatNPR(discountedTotal)}</span>
+                <span className="font-heading text-3xl font-bold tracking-tight">{formatNPR(discountedTotal)}</span>
               </div>
             </div>
 
             <div className="mt-4">
-              <Label>Discount (bhaansi)</Label>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDiscountType("none");
-                    setDiscountText("");
-                  }}
-                  aria-pressed={discountType === "none"}
-                  className={cn(
-                    "flex h-11 flex-col items-center justify-center rounded-lg border text-sm font-bold transition-colors",
-                    discountType === "none"
-                      ? "border-border bg-muted text-foreground"
-                      : "border-border bg-background text-muted-foreground hover:bg-muted",
-                  )}
-                >
-                  None
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDiscountType("flat")}
-                  aria-pressed={discountType === "flat"}
-                  className={cn(
-                    "flex h-11 flex-col items-center justify-center gap-0.5 rounded-lg border text-sm font-bold transition-colors",
-                    discountType === "flat"
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border bg-background text-muted-foreground hover:bg-muted",
-                  )}
-                >
-                  <IndianRupee size={15} /> Rs. off
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDiscountType("percent")}
-                  aria-pressed={discountType === "percent"}
-                  className={cn(
-                    "flex h-11 flex-col items-center justify-center gap-0.5 rounded-lg border text-sm font-bold transition-colors",
-                    discountType === "percent"
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border bg-background text-muted-foreground hover:bg-muted",
-                  )}
-                >
-                  <BadgePercent size={15} /> % off
-                </button>
-              </div>
-
-              {discountType !== "none" && (
-                <div className="mt-2 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="number"
-                      inputMode="decimal"
-                      min={0}
-                      max={discountType === "percent" ? 100 : undefined}
-                      step="any"
-                      value={discountText}
-                      onChange={(e) => setDiscountText(e.target.value)}
-                      placeholder={discountType === "percent" ? "e.g. 5" : "e.g. 50"}
-                      aria-label={discountType === "percent" ? "Discount percent" : "Discount in rupees"}
-                      className="flex-1"
-                    />
-                    <span className="w-20 shrink-0 text-right text-xs font-semibold text-muted-foreground">
-                      {discountType === "percent" ? `% off → −${formatNPR(discountAmount)}` : `Rs. −${formatNPR(discountAmount)}`}
-                    </span>
-                  </div>
-                  <Input
-                    value={discountNote}
-                    onChange={(e) => setDiscountNote(e.target.value)}
-                    placeholder="Note (optional) — regular customer, damaged pack…"
-                    aria-label="Discount note"
-                  />
+              <FormField label="Discount (bhaansi)">
+                <div className="grid grid-cols-3 gap-2">
+                  <Button
+                    type="button"
+                    variant={discountType === "none" ? "secondary" : "outline"}
+                    size="lg"
+                    aria-pressed={discountType === "none"}
+                    onClick={() => {
+                      setDiscountType("none");
+                      setDiscountText("");
+                      setErrors((prev) => ({ ...prev, discount: "" }));
+                    }}
+                    className="h-11 flex-col gap-0 text-sm font-bold"
+                  >
+                    None
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={discountType === "flat" ? "default" : "outline"}
+                    size="lg"
+                    aria-pressed={discountType === "flat"}
+                    onClick={() => {
+                      setDiscountType("flat");
+                      setErrors((prev) => ({ ...prev, discount: "" }));
+                    }}
+                    className={cn(
+                      "h-11 flex-col gap-0 text-sm font-bold",
+                      discountType === "flat" && "border-primary text-primary-foreground",
+                    )}
+                  >
+                    <IndianRupee size={15} /> Rs. off
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={discountType === "percent" ? "default" : "outline"}
+                    size="lg"
+                    aria-pressed={discountType === "percent"}
+                    onClick={() => {
+                      setDiscountType("percent");
+                      setErrors((prev) => ({ ...prev, discount: "" }));
+                    }}
+                    className={cn(
+                      "h-11 flex-col gap-0 text-sm font-bold",
+                      discountType === "percent" && "border-primary text-primary-foreground",
+                    )}
+                  >
+                    <BadgePercent size={15} /> % off
+                  </Button>
                 </div>
-              )}
+
+                {discountType !== "none" && (
+                  <div className="mt-2 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        max={discountType === "percent" ? 100 : undefined}
+                        step="any"
+                        value={discountText}
+                        onChange={(e) => {
+                          setDiscountText(e.target.value);
+                          setErrors((prev) => ({ ...prev, discount: "" }));
+                        }}
+                        placeholder={discountType === "percent" ? "e.g. 5" : "e.g. 50"}
+                        aria-label={discountType === "percent" ? "Discount percent" : "Discount in rupees"}
+                        aria-invalid={!!errors.discount}
+                        className="flex-1"
+                      />
+                      <span className="w-20 shrink-0 text-right text-xs font-semibold text-muted-foreground">
+                        {discountType === "percent" ? `% off → −${formatNPR(discountAmount)}` : `Rs. −${formatNPR(discountAmount)}`}
+                      </span>
+                    </div>
+                    {errors.discount && <p role="alert" className="text-sm font-normal text-destructive">{errors.discount}</p>}
+                    <Input
+                      value={discountNote}
+                      onChange={(e) => setDiscountNote(e.target.value)}
+                      placeholder="Note (optional) — regular customer, damaged pack…"
+                      aria-label="Discount note"
+                    />
+                  </div>
+                )}
+              </FormField>
             </div>
 
             <div className="mt-4">
-              <Label>Payment</Label>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setChoice("CASH")}
-                  className={cn(
-                    "flex h-16 flex-col items-center justify-center gap-1 rounded-xl border text-sm font-bold transition-colors",
-                    choice === "CASH"
-                      ? "border-emerald-600 bg-emerald-50 text-emerald-800"
-                      : "border-border text-muted-foreground hover:bg-muted",
-                  )}
-                >
-                  <Banknote size={18} /> Cash
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setChoice("PARTIAL")}
-                  className={cn(
-                    "flex h-16 flex-col items-center justify-center gap-1 rounded-xl border text-sm font-bold transition-colors",
-                    choice === "PARTIAL"
-                      ? "border-amber-500 bg-amber-50 text-amber-800"
-                      : "border-border text-muted-foreground hover:bg-muted",
-                  )}
-                >
-                  <HandCoins size={18} /> Partial
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setChoice("UDHARO")}
-                  className={cn(
-                    "flex h-16 flex-col items-center justify-center gap-1 rounded-xl border text-sm font-bold transition-colors",
-                    choice === "UDHARO"
-                      ? "border-red-500 bg-red-50 text-red-700"
-                      : "border-border text-muted-foreground hover:bg-muted",
-                  )}
-                >
-                  <AlertTriangle size={18} /> Udharo
-                </button>
-              </div>
+              <FormField label="Payment">
+                <div className="grid grid-cols-3 gap-2">
+                  <Button
+                    type="button"
+                    variant={choice === "CASH" ? "outline" : "ghost"}
+                    size="lg"
+                    aria-pressed={choice === "CASH"}
+                    onClick={() => setChoice("CASH")}
+                    className={cn(
+                      "relative h-16 flex-col gap-1 text-sm font-bold",
+                      choice === "CASH"
+                        ? "border-emerald-600 bg-emerald-50 text-emerald-800 shadow-md shadow-emerald-600/15 hover:bg-emerald-50"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {choice === "CASH" && (
+                      <CheckCircle2 size={15} className="absolute top-1.5 right-1.5 text-emerald-600" />
+                    )}
+                    <Banknote size={18} /> Cash
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={choice === "PARTIAL" ? "outline" : "ghost"}
+                    size="lg"
+                    aria-pressed={choice === "PARTIAL"}
+                    onClick={() => setChoice("PARTIAL")}
+                    className={cn(
+                      "relative h-16 flex-col gap-1 text-sm font-bold",
+                      choice === "PARTIAL"
+                        ? "border-amber-500 bg-amber-50 text-amber-800 shadow-md shadow-amber-500/15 hover:bg-amber-50"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {choice === "PARTIAL" && (
+                      <CheckCircle2 size={15} className="absolute top-1.5 right-1.5 text-amber-600" />
+                    )}
+                    <HandCoins size={18} /> Partial
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={choice === "UDHARO" ? "outline" : "ghost"}
+                    size="lg"
+                    aria-pressed={choice === "UDHARO"}
+                    onClick={() => setChoice("UDHARO")}
+                    className={cn(
+                      "relative h-16 flex-col gap-1 text-sm font-bold",
+                      choice === "UDHARO"
+                        ? "border-red-500 bg-red-50 text-red-700 shadow-md shadow-red-500/15 hover:bg-red-50"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {choice === "UDHARO" && (
+                      <CheckCircle2 size={15} className="absolute top-1.5 right-1.5 text-red-600" />
+                    )}
+                    <AlertTriangle size={18} /> Udharo
+                  </Button>
+                </div>
+              </FormField>
             </div>
 
             {choice === "CASH" && (
@@ -453,19 +520,24 @@ export default function CheckoutDialog({
 
             {choice === "PARTIAL" && (
               <div className="mt-3">
-                <Label htmlFor="paid-now">Cash received now (rest goes on khata)</Label>
-                <Input
-                  id="paid-now"
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  max={discountedTotal}
-                  step="0.01"
-                  value={paidText}
-                  onChange={(e) => setPaidText(e.target.value)}
-                  className="text-lg"
-                  autoFocus
-                />
+                <FormField label="Cash received now (rest goes on khata)" htmlFor="paid-now" error={errors.paid}>
+                  <Input
+                    id="paid-now"
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    max={discountedTotal}
+                    step="0.01"
+                    value={paidText}
+                    onChange={(e) => {
+                      setPaidText(e.target.value);
+                      setErrors((prev) => ({ ...prev, paid: "" }));
+                    }}
+                    className="text-lg"
+                    autoFocus
+                    aria-invalid={!!errors.paid}
+                  />
+                </FormField>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Due after this payment: <strong className="text-amber-700">{formatNPR(dueAmount)}</strong>
                 </p>
@@ -480,34 +552,31 @@ export default function CheckoutDialog({
 
             {needsCustomer && (
               <div className="mt-4 rounded-xl border border-red-200 bg-red-50/50 p-3">
-                <Label>Khata customer ({formatNPR(dueAmount)} on credit)</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setCustomerChoice("existing")}
-                    disabled={customers.length === 0}
-                    className={cn(
-                      "h-11 rounded-lg border text-sm font-bold transition-colors disabled:opacity-40",
-                      customerChoice === "existing"
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-background text-muted-foreground",
-                    )}
-                  >
-                    Existing customer
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCustomerChoice("new")}
-                    className={cn(
-                      "flex h-11 items-center justify-center gap-1 rounded-lg border text-sm font-bold transition-colors",
-                      customerChoice === "new"
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-background text-muted-foreground",
-                    )}
-                  >
-                    <UserPlus size={15} /> New customer
-                  </button>
-                </div>
+                <FormField label={`Khata customer (${formatNPR(dueAmount)} on credit)`}>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant={customerChoice === "existing" ? "default" : "outline"}
+                      size="lg"
+                      disabled={customers.length === 0}
+                      aria-pressed={customerChoice === "existing"}
+                      onClick={() => setCustomerChoice("existing")}
+                      className="h-11 text-sm font-bold"
+                    >
+                      Existing customer
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={customerChoice === "new" ? "default" : "outline"}
+                      size="lg"
+                      aria-pressed={customerChoice === "new"}
+                      onClick={() => setCustomerChoice("new")}
+                      className="h-11 text-sm font-bold"
+                    >
+                      <UserPlus size={15} /> New customer
+                    </Button>
+                  </div>
+                </FormField>
 
                 {customerChoice === "existing" ? (
                   <div className="mt-3">
@@ -522,7 +591,9 @@ export default function CheckoutDialog({
                   </div>
                 ) : (
                   <div className="mt-3 space-y-2">
-                    <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Customer name *" />
+                    <FormField label="Customer name *" error={newName.trim() ? undefined : undefined}>
+                      <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Customer name *" />
+                    </FormField>
                     <div className="grid grid-cols-2 gap-2">
                       <Input
                         value={newPhone}
@@ -540,16 +611,18 @@ export default function CheckoutDialog({
             {!needsCustomer && customerChoice === "existing" && customerId !== "" && (
               <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-3">
                 <div className="flex items-center justify-between gap-2">
-                  <Label className="flex items-center gap-1 text-sm text-foreground">
+                  <p className="text-sm text-foreground">
                     Selling to <span className="font-bold">{selectedCustomer?.name ?? "the selected customer"}</span>
-                  </Label>
-                  <button
+                  </p>
+                  <Button
                     type="button"
+                    variant="link"
+                    size="sm"
                     onClick={() => setCustomerId("")}
-                    className="text-xs font-medium text-red-600 hover:underline"
+                    className="px-0 text-xs font-medium text-red-600"
                   >
                     Remove from bill
-                  </button>
+                  </Button>
                 </div>
                 {selectedCustomer?.currentBalance != null && selectedCustomer.currentBalance > 0 && (
                   <p className="mt-1 text-xs font-medium text-amber-700">

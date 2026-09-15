@@ -13,8 +13,11 @@ import type {
   CheckoutResult,
   CustomerInput,
   DeliveryInput,
+  DeliveryItemInput,
+  EditTransactionInput,
   HistoryEntry,
   ProductInput,
+  ReceiveStockLineInput,
   StockAdjustInput,
   StockMoveData,
 } from "@/lib/types";
@@ -58,6 +61,16 @@ function resolveUnit(product: UnitSource, requested?: string | null): { unitName
 /* Products (Stock / Inventory)                                        */
 /* ------------------------------------------------------------------ */
 
+/** Resolve optional batch dates: empty string → null, else parse the YYYY-MM-DD input. */
+function parseBatchDate(value?: string | null): Date | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = new Date(`${trimmed}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
 function parseProductInput(input: ProductInput) {
   const name = (input.name ?? "").trim();
   if (!name) throw new Error("Product name is required.");
@@ -72,6 +85,20 @@ function parseProductInput(input: ProductInput) {
   const costPrice = round2(Number(input.costPrice ?? 0));
   const lowStockAt = Number(input.lowStockAt);
   const openingStock = Number(input.openingStock) || 0;
+  const manufacturingDate = parseBatchDate(input.manufacturingDate);
+  const expiryDate = parseBatchDate(input.expiryDate);
+
+  // "Sells to" — retail, wholesale, or both. A price entered for a mode implies
+  // the shop sells it in that mode, so a retail-only item with a wholesale price
+  // (or vice versa) is promoted to "both", never silently dropped.
+  let sellAs: "RETAIL" | "WHOLESALE" | "BOTH" =
+    input.sellAs === "RETAIL" || input.sellAs === "WHOLESALE" ? input.sellAs : "BOTH";
+  if (sellAs === "RETAIL" && wholesalePrice > 0) sellAs = "BOTH";
+  if (sellAs === "WHOLESALE" && retailPrice > 0) sellAs = "BOTH";
+
+  if (expiryDate && manufacturingDate && expiryDate < manufacturingDate) {
+    throw new Error("Expiry date cannot be before the manufacturing date.");
+  }
 
   if (!Number.isFinite(retailPrice) || retailPrice < 0) throw new Error("Retail price must be zero or more.");
   if (!Number.isFinite(wholesalePrice) || wholesalePrice < 0) throw new Error("Wholesale price must be zero or more.");
@@ -96,7 +123,21 @@ function parseProductInput(input: ProductInput) {
     units.push({ name: unitName, factor });
   }
 
-  return { name, category, barcode, baseUnit, retailPrice, wholesalePrice, costPrice, lowStockAt, openingStock, units };
+  return {
+    name,
+    category,
+    barcode,
+    baseUnit,
+    retailPrice,
+    wholesalePrice,
+    costPrice,
+    sellAs,
+    lowStockAt,
+    openingStock,
+    manufacturingDate,
+    expiryDate,
+    units,
+  };
 }
 
 export async function createProduct(input: ProductInput): Promise<ActionResult<{ id: string }>> {
@@ -111,7 +152,10 @@ export async function createProduct(input: ProductInput): Promise<ActionResult<{
         retailPrice: data.retailPrice,
         wholesalePrice: data.wholesalePrice,
         costPrice: data.costPrice,
+        sellAs: data.sellAs,
         lowStockAt: data.lowStockAt,
+        manufacturingDate: data.manufacturingDate,
+        expiryDate: data.expiryDate,
         stockQuantity: data.openingStock,
         units: { create: data.units },
         stockMoves:
@@ -149,11 +193,50 @@ export async function updateProduct(id: string, input: ProductInput): Promise<Ac
           retailPrice: data.retailPrice,
           wholesalePrice: data.wholesalePrice,
           costPrice: data.costPrice,
+          sellAs: data.sellAs,
           lowStockAt: data.lowStockAt,
+          manufacturingDate: data.manufacturingDate,
+          expiryDate: data.expiryDate,
           units: { deleteMany: {}, create: data.units },
         },
       });
     });
+    refreshShopPaths(["/", "/inventory", "/reports"]);
+    return { ok: true, data: { id } };
+  } catch (error) {
+    return { ok: false, error: toActionError(error) };
+  }
+}
+
+/**
+ * Fast price update from the counter — retail + wholesale in one tap so daily
+ * vegetable / grain prices can follow the market without opening the stock screen.
+ */
+export async function updateProductPrices(
+  id: string,
+  prices: { retailPrice?: number; wholesalePrice?: number },
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    const product = await prisma.product.findUnique({ where: { id } });
+    if (!product) throw new Error("Product not found — it may have been removed.");
+
+    const data: { retailPrice?: number; wholesalePrice?: number; sellAs?: string } = {};
+    const retailPrice = prices.retailPrice != null ? round2(Number(prices.retailPrice)) : product.retailPrice;
+    const wholesalePrice = prices.wholesalePrice != null ? round2(Number(prices.wholesalePrice)) : product.wholesalePrice;
+    if (!Number.isFinite(retailPrice) || retailPrice < 0 || !Number.isFinite(wholesalePrice) || wholesalePrice < 0) {
+      throw new Error("Prices cannot be negative.");
+    }
+    data.retailPrice = retailPrice;
+    data.wholesalePrice = wholesalePrice;
+
+    // If a price is entered for a mode the product isn't sold in, promote it to
+    // "both" the same way create/update do — never silently drop the new price.
+    let sellAs = product.sellAs;
+    if (sellAs === "RETAIL" && wholesalePrice > 0) sellAs = "BOTH";
+    if (sellAs === "WHOLESALE" && retailPrice > 0) sellAs = "BOTH";
+    data.sellAs = sellAs;
+
+    await prisma.product.update({ where: { id }, data });
     refreshShopPaths(["/", "/inventory", "/reports"]);
     return { ok: true, data: { id } };
   } catch (error) {
@@ -251,6 +334,16 @@ export async function adjustStock(input: StockAdjustInput): Promise<ActionResult
             data: { costPrice: newCost },
           });
         }
+
+        // New batch in → refresh the manufacturing / expiry dates for the product.
+        const manufacturingDate = parseBatchDate(input.manufacturingDate);
+        const expiryDate = parseBatchDate(input.expiryDate);
+        if (manufacturingDate || expiryDate) {
+          const data: { manufacturingDate?: Date; expiryDate?: Date } = {};
+          if (manufacturingDate) data.manufacturingDate = manufacturingDate;
+          if (expiryDate) data.expiryDate = expiryDate;
+          await tx.product.update({ where: { id: product.id }, data });
+        }
       }
 
       return updated.stockQuantity;
@@ -258,6 +351,127 @@ export async function adjustStock(input: StockAdjustInput): Promise<ActionResult
 
     refreshShopPaths(["/", "/inventory", "/reports"]);
     return { ok: true, data: { newStock: round2(newStock) } };
+  } catch (error) {
+    return { ok: false, error: toActionError(error) };
+  }
+}
+
+/**
+ * Batch stock intake — one round trip for a whole delivery. Each line either
+ * tops up an existing product (with cost-price averaging, like a single
+ * PURCHASE) or instantly creates a new product from just a typed name and
+ * retail price. A shared manufacturing/expiry date (one supplier lot) is
+ * applied to every line. All inside a single atomic transaction.
+ */
+export async function receiveStock(
+  lines: ReceiveStockLineInput[],
+  batch?: { manufacturingDate?: string | null; expiryDate?: string | null; note?: string | null },
+): Promise<ActionResult<{ received: number; newProducts: number }>> {
+  try {
+    const items = Array.isArray(lines) ? lines : [];
+    if (items.length === 0) throw new Error("Add at least one item to receive.");
+    if (items.length > 50) throw new Error("Receive up to 50 lines at a time.");
+
+    const sharedMfg = parseBatchDate(batch?.manufacturingDate);
+    const sharedExp = parseBatchDate(batch?.expiryDate);
+    const note = (batch?.note ?? "").trim() || null;
+
+    const result = await prisma.$transaction(async (tx) => {
+      let received = 0;
+      let newProducts = 0;
+
+      for (const raw of items) {
+        const displayName = (raw.name ?? "").trim() || "Unknown product";
+        const quantity = Number(raw.quantity);
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+          throw new Error(`Quantity for “${displayName}” must be greater than zero.`);
+        }
+
+        if (raw.productId) {
+          const product = await tx.product.findUnique({ where: { id: raw.productId }, include: { units: true } });
+          if (!product) throw new Error(`“${displayName}” is no longer in the catalog.`);
+
+          const { unitName, factor } = resolveUnit(product, raw.unitName);
+          const delta = round2(quantity * factor);
+          if (delta <= 0) throw new Error(`Quantity for “${displayName}” must be greater than zero.`);
+
+          await tx.product.update({
+            where: { id: product.id },
+            data: { stockQuantity: { increment: delta } },
+          });
+          await tx.stockMove.create({
+            data: {
+              productId: product.id,
+              delta,
+              reason: "PURCHASE",
+              note,
+              unitName,
+              quantity,
+            },
+          });
+
+          const costTotal = Number(raw.costTotal ?? 0);
+          if (Number.isFinite(costTotal) && costTotal > 0) {
+            const perBaseCost = round2(costTotal / delta);
+            const newCost = round2(
+              (product.stockQuantity * product.costPrice + delta * perBaseCost) / (product.stockQuantity + delta),
+            );
+            await tx.product.update({ where: { id: product.id }, data: { costPrice: newCost } });
+          }
+
+          // A new lot came in — refresh the dates (only if this batch has them).
+          if (sharedMfg || sharedExp) {
+            const dateData: { manufacturingDate?: Date; expiryDate?: Date } = {};
+            if (sharedMfg) dateData.manufacturingDate = sharedMfg;
+            if (sharedExp) dateData.expiryDate = sharedExp;
+            await tx.product.update({ where: { id: product.id }, data: dateData });
+          }
+
+          received += delta;
+        } else {
+          const name = (raw.name ?? "").trim();
+          if (!name) throw new Error("Every received item needs a name.");
+          const retailPrice = round2(Number(raw.retailPrice ?? 0));
+          if (!Number.isFinite(retailPrice) || retailPrice < 0) {
+            throw new Error(`Enter a retail price for “${name}”.`);
+          }
+          if (sharedExp && sharedMfg && sharedExp < sharedMfg) {
+            throw new Error(`Expiry cannot be before the manufacturing date for “${name}”.`);
+          }
+
+          await tx.product.create({
+            data: {
+              name,
+              category: (raw.category ?? "").trim() || "General",
+              barcode: null,
+              baseUnit: "pcs",
+              retailPrice,
+              wholesalePrice: retailPrice,
+              lowStockAt: 10,
+              stockQuantity: quantity,
+              manufacturingDate: sharedMfg,
+              expiryDate: sharedExp,
+              stockMoves: {
+                create: {
+                  delta: quantity,
+                  reason: "PURCHASE",
+                  note,
+                  unitName: "pcs",
+                  quantity,
+                },
+              },
+            },
+          });
+          received += quantity;
+          newProducts += 1;
+        }
+      }
+
+      return { received: round2(received), newProducts };
+    });
+
+    refreshShopPaths(["/", "/inventory", "/reports"]);
+    return { ok: true, data: result };
   } catch (error) {
     return { ok: false, error: toActionError(error) };
   }
@@ -352,6 +566,224 @@ export async function voidTransaction(transactionId: string): Promise<ActionResu
 
     refreshShopPaths(["/", "/inventory", "/khata", "/reports"]);
     return { ok: true, data: null };
+  } catch (error) {
+    return { ok: false, error: toActionError(error) };
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Editing a saved bill (fixing a mistake in place)                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Corrects a wrongly-entered bill IN PLACE — same receipt number, so the
+ * paper trail never contradicts itself. Reverses the original line-by-line
+ * (items back to the shelf with a VOID ledger row, khata due taken back),
+ * then re-prices the edited lines at today's prices (same math as checkout),
+ * rewrites the transaction's items/totals, applies the new stock decrement
+ * and adjusts each affected customer's khata balance by exactly the delta.
+ * All inside one atomic transaction.
+ */
+export async function editTransaction(
+  input: EditTransactionInput,
+): Promise<ActionResult<{ transactionId: string; totalAmount: number; paidAmount: number; dueAmount: number }>> {
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const original = await tx.transaction.findUnique({
+        where: { id: input.transactionId },
+        include: { items: true },
+      });
+      if (!original) throw new Error("This bill was already removed.");
+      if (original.type === "PAYMENT") {
+        throw new Error("Khata payments can't be edited — void it and re-record it instead.");
+      }
+
+      const cartItems = Array.isArray(input.items) ? input.items : [];
+      if (cartItems.length === 0) throw new Error("A bill needs at least one line.");
+
+      const type = original.type === "WHOLESALE" ? "WHOLESALE" : "RETAIL";
+      const oldTotal = original.totalAmount;
+      const oldPaid = original.paidAmount;
+      const oldDue = round2(oldTotal - oldPaid);
+      const oldCustomerId: string | null = original.customerId;
+
+      // 1. Reverse the original bill: restock every line, log a VOID row.
+      for (const item of original.items) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: { stockQuantity: { increment: item.quantity } },
+        });
+        await tx.stockMove.create({
+          data: {
+            productId: item.productId,
+            delta: item.quantity,
+            reason: "VOID",
+            note: `Edited bill #${original.id.slice(-8).toUpperCase()}`,
+            refType: "TRANSACTION",
+            refId: original.id,
+          },
+        });
+      }
+
+      // 2. Re-price the corrected lines — trust the database, never the browser.
+      const products = await tx.product.findMany({
+        where: { id: { in: cartItems.map((i) => i.productId) } },
+        include: { units: true },
+      });
+      const productMap = new Map(products.map((p) => [p.id, p]));
+
+      let grossTotal = 0;
+      const lines: CheckoutLineResult[] = [];
+      for (const item of cartItems) {
+        const quantity = Number(item.quantity);
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+          throw new Error("Every line needs a quantity greater than zero.");
+        }
+        const product = productMap.get(item.productId);
+        if (!product) throw new Error("A product on this bill is no longer in the catalog.");
+        const { unitName, factor } = resolveUnit(product, item.unitName);
+        const baseQuantity = round2(quantity * factor);
+        if (baseQuantity <= 0) throw new Error(`Quantity for ${product.name} must be greater than zero.`);
+        const defaultUnitPrice = type === "WHOLESALE" ? product.wholesalePrice : product.retailPrice;
+        let unitPrice = defaultUnitPrice;
+        if (item.unitPrice != null && Number.isFinite(Number(item.unitPrice))) {
+          const override = round2(Number(item.unitPrice));
+          if (override < 0) throw new Error(`Rate for ${product.name} cannot be negative.`);
+          unitPrice = override;
+        }
+        // Per-line bhaansi: a flat rupee amount off this line, clamped to its
+        // subtotal so a fat-fingered discount can never make a line negative.
+        const lineGross = round2(unitPrice * baseQuantity);
+        let lineDiscount = 0;
+        if (item.discount != null && Number.isFinite(Number(item.discount))) {
+          lineDiscount = Math.max(0, round2(Number(item.discount)));
+          if (lineDiscount > lineGross) lineDiscount = lineGross;
+        }
+        const subtotal = round2(lineGross - lineDiscount);
+        grossTotal += subtotal;
+        lines.push({
+          productId: product.id,
+          name: product.name,
+          quantity,
+          unitName,
+          baseQuantity,
+          baseUnit: product.baseUnit,
+          unitPrice,
+          subtotal,
+        });
+      }
+      grossTotal = round2(grossTotal);
+
+      let discountAmount = 0;
+      let discountNote: string | null = null;
+      if (input.discount) {
+        const raw = Number(input.discount.value);
+        if (input.discount.type === "percent") {
+          if (!Number.isFinite(raw) || raw < 0 || raw > 100) {
+            throw new Error("Enter a discount between 0 and 100%.");
+          }
+          discountAmount = round2((grossTotal * raw) / 100);
+        } else {
+          if (!Number.isFinite(raw) || raw < 0) throw new Error("Discount amount must be zero or more.");
+          discountAmount = Math.min(round2(raw), grossTotal);
+        }
+        if (discountAmount > 0) discountNote = (input.discount.note ?? "").trim() || null;
+      }
+      const newTotal = round2(grossTotal - discountAmount);
+
+      // The cash already collected stays; a corrected (smaller) bill just means
+      // less was owed, never that the shop owes the customer money back.
+      const newPaid = Math.min(oldPaid, newTotal);
+      const newDue = round2(newTotal - newPaid);
+      const paymentStatus = newDue <= 0 ? "PAID" : newPaid > 0 ? "PARTIAL" : "UDHARO";
+      if (newDue > 0 && !input.customerId) {
+        throw new Error("A bill with an outstanding amount needs a khata customer.");
+      }
+
+      for (const line of lines) {
+        const product = productMap.get(line.productId)!;
+        if (product.stockQuantity < line.baseQuantity) {
+          throw new Error(
+            `Not enough stock for ${product.name}. Available: ${product.stockQuantity} ${product.baseUnit}.`,
+          );
+        }
+      }
+
+      // 3. Rewrite the bill in place — same receipt number.
+      await tx.transaction.update({
+        where: { id: original.id },
+        data: {
+          customerId: input.customerId,
+          totalAmount: newTotal,
+          discountAmount,
+          discountNote,
+          paidAmount: newPaid,
+          paymentStatus,
+          items: {
+            deleteMany: {},
+            create: lines.map((line) => ({
+              productId: line.productId,
+              quantity: line.baseQuantity,
+              unitName: line.unitName === line.baseUnit ? "" : line.unitName,
+              unitPrice: line.unitPrice,
+              subtotal: line.subtotal,
+            })),
+          },
+        },
+      });
+
+      for (const line of lines) {
+        await tx.product.update({
+          where: { id: line.productId },
+          data: { stockQuantity: { decrement: line.baseQuantity } },
+        });
+        await tx.stockMove.create({
+          data: {
+            productId: line.productId,
+            delta: -line.baseQuantity,
+            reason: "SALE",
+            unitName: line.unitName,
+            quantity: line.quantity,
+            refType: "TRANSACTION",
+            refId: original.id,
+          },
+        });
+      }
+
+      // 4. Khata: the due moves from the old customer to the new one (if any).
+      if (input.customerId === oldCustomerId && input.customerId) {
+        const delta = round2(newDue - oldDue);
+        if (delta !== 0) {
+          await tx.customer.update({
+            where: { id: input.customerId },
+            data: { currentBalance: { increment: delta } },
+          });
+        }
+      } else {
+        if (oldCustomerId) {
+          await tx.customer.update({
+            where: { id: oldCustomerId },
+            data: { currentBalance: { decrement: oldDue } },
+          });
+        }
+        if (input.customerId) {
+          await tx.customer.update({
+            where: { id: input.customerId },
+            data: { currentBalance: { increment: newDue } },
+          });
+        }
+      }
+
+      return {
+        transactionId: original.id,
+        totalAmount: newTotal,
+        paidAmount: newPaid,
+        dueAmount: newDue,
+      };
+    });
+
+    refreshShopPaths(["/", "/inventory", "/khata", "/reports"]);
+    return { ok: true, data: result };
   } catch (error) {
     return { ok: false, error: toActionError(error) };
   }
@@ -474,8 +906,26 @@ export async function checkout(input: CheckoutInput): Promise<ActionResult<Check
         const baseQuantity = round2(quantity * factor);
         if (baseQuantity <= 0) throw new Error(`Quantity for ${product.name} must be greater than zero.`);
 
-        const unitPrice = type === "WHOLESALE" ? product.wholesalePrice : product.retailPrice;
-        const subtotal = round2(unitPrice * baseQuantity);
+        // Price from the database by default, but honour an explicit per-line
+        // rate override (bhaansi, daily vegetable prices, a long-standing
+        // customer's rate…) handed up from the counter. The charged rate is
+        // what actually lands on the ledger.
+        const defaultUnitPrice = type === "WHOLESALE" ? product.wholesalePrice : product.retailPrice;
+        let unitPrice = defaultUnitPrice;
+        if (item.unitPrice != null && Number.isFinite(Number(item.unitPrice))) {
+          const override = round2(Number(item.unitPrice));
+          if (override < 0) throw new Error(`Rate for ${product.name} cannot be negative.`);
+          unitPrice = override;
+        }
+        // Per-line bhaansi: a flat rupee amount off this line, clamped to its
+        // subtotal so a fat-fingered discount can never make a line negative.
+        const lineGross = round2(unitPrice * baseQuantity);
+        let lineDiscount = 0;
+        if (item.discount != null && Number.isFinite(Number(item.discount))) {
+          lineDiscount = Math.max(0, round2(Number(item.discount)));
+          if (lineDiscount > lineGross) lineDiscount = lineGross;
+        }
+        const subtotal = round2(lineGross - lineDiscount);
         grossTotal += subtotal;
         lines.push({
           productId: product.id,
@@ -680,6 +1130,21 @@ export async function getCustomerHistory(customerId: string): Promise<ActionResu
 /* Deliveries                                                          */
 /* ------------------------------------------------------------------ */
 
+const DELIVERY_STATUSES = [
+  "PENDING",
+  "ASSIGNED",
+  "LOADED",
+  "IN_TRANSIT",
+  "DELIVERED",
+  "SETTLED",
+  "RETURNED",
+  "CANCELLED",
+] as const;
+
+function validateStatus(status: string): boolean {
+  return DELIVERY_STATUSES.includes(status as (typeof DELIVERY_STATUSES)[number]);
+}
+
 export async function createDeliveryLog(
   input: DeliveryInput,
 ): Promise<ActionResult<{ id: string }>> {
@@ -694,10 +1159,65 @@ export async function createDeliveryLog(
     const totalValue = round2(Number(input.totalValue));
     if (!Number.isFinite(totalValue) || totalValue < 0) throw new Error("Total value must be zero or more.");
 
-    const log = await prisma.deliveryLog.create({
-      data: { driverName, destinationClient, itemsSummary, totalValue, status: "PENDING" },
+    const items = Array.isArray(input.items) ? input.items : [];
+    if (items.length === 0) throw new Error("Add at least one product to the delivery.");
+
+    const scheduledAt = input.scheduledAt ? new Date(input.scheduledAt) : null;
+
+    const log = await prisma.$transaction(async (tx) => {
+      const delivery = await tx.deliveryLog.create({
+        data: {
+          driverName,
+          driverPhone: (input.driverPhone ?? "").trim() || null,
+          vehicleNumber: (input.vehicleNumber ?? "").trim() || null,
+          destinationClient,
+          customerId: input.customerId || null,
+          scheduledAt,
+          itemsSummary,
+          totalValue,
+          status: "PENDING",
+          items: {
+            create: items.map((item) => ({
+              productId: item.productId,
+              quantity: item.quantity,
+              unitName: item.unitName,
+              unitPrice: item.unitPrice,
+              subtotal: round2(item.quantity * item.unitPrice),
+            })),
+          },
+        },
+        include: { items: true },
+      });
+
+      // Decrement stock for each item (reserved for delivery)
+      for (const item of items) {
+        const product = await tx.product.findUnique({ where: { id: item.productId } });
+        if (!product) throw new Error(`Product ${item.productId} not found.`);
+        if (product.stockQuantity < item.quantity) {
+          throw new Error(`Not enough stock for ${product.name}. Available: ${product.stockQuantity} ${product.baseUnit}.`);
+        }
+        await tx.product.update({
+          where: { id: item.productId },
+          data: { stockQuantity: { decrement: item.quantity } },
+        });
+        await tx.stockMove.create({
+          data: {
+            productId: item.productId,
+            delta: -item.quantity,
+            reason: "DELIVERY",
+            note: `Reserved for delivery to ${destinationClient}`,
+            unitName: item.unitName,
+            quantity: item.quantity,
+            refType: "DELIVERY",
+            refId: delivery.id,
+          },
+        });
+      }
+
+      return delivery;
     });
-    refreshShopPaths(["/delivery", "/reports"]);
+
+    refreshShopPaths(["/delivery", "/reports", "/inventory"]);
     return { ok: true, data: { id: log.id } };
   } catch (error) {
     return { ok: false, error: toActionError(error) };
@@ -706,10 +1226,173 @@ export async function createDeliveryLog(
 
 export async function updateDeliveryStatus(id: string, status: string): Promise<ActionResult<null>> {
   try {
-    const allowed = ["PENDING", "DELIVERED", "SETTLED"];
-    if (!allowed.includes(status)) throw new Error("Invalid delivery status.");
-    await prisma.deliveryLog.update({ where: { id }, data: { status } });
+    if (!validateStatus(status)) throw new Error("Invalid delivery status.");
+    const updateData: { status: string; startedAt?: Date; deliveredAt?: Date } = { status };
+    if (status === "LOADED" || status === "IN_TRANSIT") updateData.startedAt = new Date();
+    if (status === "DELIVERED") updateData.deliveredAt = new Date();
+    await prisma.deliveryLog.update({ where: { id }, data: updateData });
     refreshShopPaths(["/delivery", "/reports"]);
+    return { ok: true, data: null };
+  } catch (error) {
+    return { ok: false, error: toActionError(error) };
+  }
+}
+
+export async function setDeliveryProof(id: string, proof: string, notes?: string): Promise<ActionResult<null>> {
+  try {
+    await prisma.deliveryLog.update({
+      where: { id },
+      data: {
+        proofOfDelivery: proof,
+        deliveryNotes: notes ? (notes.trim() || null) : undefined,
+        status: "DELIVERED",
+        deliveredAt: new Date(),
+      },
+    });
+    refreshShopPaths(["/delivery", "/reports"]);
+    return { ok: true, data: null };
+  } catch (error) {
+    return { ok: false, error: toActionError(error) };
+  }
+}
+
+export async function settleDelivery(
+  id: string,
+  settlementNotes: string,
+  paymentType: "CASH" | "KHATA" | "ONLINE",
+): Promise<ActionResult<null>> {
+  try {
+    const log = await prisma.deliveryLog.findUnique({
+      where: { id },
+      include: { customer: true },
+    });
+    if (!log) throw new Error("Delivery not found.");
+    if (log.status !== "DELIVERED") throw new Error("Only delivered orders can be settled.");
+
+    await prisma.$transaction(async (tx) => {
+      const notes = `Settled via ${paymentType}. ${settlementNotes?.trim() || ""}`.trim();
+      await tx.deliveryLog.update({
+        where: { id },
+        data: { status: "SETTLED", settlementNotes: notes },
+      });
+
+      // If customer linked and payment is KHATA, add to their balance
+      if (paymentType === "KHATA" && log.customerId) {
+        await tx.customer.update({
+          where: { id: log.customerId },
+          data: { currentBalance: { increment: log.totalValue } },
+        });
+        await tx.transaction.create({
+          data: {
+            customerId: log.customerId,
+            type: "WHOLESALE",
+            totalAmount: log.totalValue,
+            paidAmount: 0,
+            paymentStatus: "UDHARO",
+            items: { create: [] },
+          },
+        });
+      }
+      // If CASH or ONLINE, record as PAYMENT transaction
+      if ((paymentType === "CASH" || paymentType === "ONLINE") && log.customerId) {
+        await tx.transaction.create({
+          data: {
+            customerId: log.customerId,
+            type: "PAYMENT",
+            totalAmount: log.totalValue,
+            paidAmount: log.totalValue,
+            paymentStatus: "PAID",
+          },
+        });
+        await tx.customer.update({
+          where: { id: log.customerId },
+          data: { currentBalance: { decrement: log.totalValue } },
+        });
+      }
+    });
+
+    refreshShopPaths(["/delivery", "/reports", "/khata"]);
+    return { ok: true, data: null };
+  } catch (error) {
+    return { ok: false, error: toActionError(error) };
+  }
+}
+
+export async function returnDelivery(id: string, notes: string): Promise<ActionResult<null>> {
+  try {
+    const log = await prisma.deliveryLog.findUnique({
+      where: { id },
+      include: { items: true },
+    });
+    if (!log) throw new Error("Delivery not found.");
+    if (log.status === "RETURNED" || log.status === "CANCELLED") throw new Error("Already returned or cancelled.");
+
+    await prisma.$transaction(async (tx) => {
+      // Return stock
+      for (const item of log.items) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: { stockQuantity: { increment: item.quantity } },
+        });
+        await tx.stockMove.create({
+          data: {
+            productId: item.productId,
+            delta: item.quantity,
+            reason: "RETURN",
+            note: `Returned from delivery to ${log.destinationClient}: ${notes}`,
+            unitName: item.unitName,
+            quantity: item.quantity,
+            refType: "DELIVERY",
+            refId: log.id,
+          },
+        });
+      }
+      await tx.deliveryLog.update({
+        where: { id },
+        data: { status: "RETURNED", deliveryNotes: notes },
+      });
+    });
+
+    refreshShopPaths(["/delivery", "/reports", "/inventory"]);
+    return { ok: true, data: null };
+  } catch (error) {
+    return { ok: false, error: toActionError(error) };
+  }
+}
+
+export async function cancelDelivery(id: string): Promise<ActionResult<null>> {
+  try {
+    const log = await prisma.deliveryLog.findUnique({
+      where: { id },
+      include: { items: true },
+    });
+    if (!log) throw new Error("Delivery not found.");
+    if (log.status === "DELIVERED" || log.status === "SETTLED") throw new Error("Cannot cancel a delivered/settled order.");
+
+    await prisma.$transaction(async (tx) => {
+      // Return stock
+      for (const item of log.items) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: { stockQuantity: { increment: item.quantity } },
+        });
+        await tx.stockMove.create({
+          data: {
+            productId: item.productId,
+            delta: item.quantity,
+            reason: "RETURN",
+            note: `Cancelled delivery to ${log.destinationClient}`,
+            unitName: item.unitName,
+            quantity: item.quantity,
+            refType: "DELIVERY",
+            refId: log.id,
+          },
+        });
+      }
+      await tx.deliveryLog.update({ where: { id }, data: { status: "CANCELLED" } });
+    });
+
+    refreshShopPaths(["/delivery", "/reports", "/inventory"]);
     return { ok: true, data: null };
   } catch (error) {
     return { ok: false, error: toActionError(error) };
@@ -718,9 +1401,87 @@ export async function updateDeliveryStatus(id: string, status: string): Promise<
 
 export async function deleteDeliveryLog(id: string): Promise<ActionResult<null>> {
   try {
-    await prisma.deliveryLog.delete({ where: { id } });
-    refreshShopPaths(["/delivery", "/reports"]);
+    const log = await prisma.deliveryLog.findUnique({ where: { id }, include: { items: true } });
+    if (!log) throw new Error("Delivery not found.");
+
+    await prisma.$transaction(async (tx) => {
+      // Return stock if not already settled/returned
+      if (!["SETTLED", "RETURNED", "CANCELLED"].includes(log.status)) {
+        for (const item of log.items) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { stockQuantity: { increment: item.quantity } },
+          });
+          await tx.stockMove.create({
+            data: {
+              productId: item.productId,
+              delta: item.quantity,
+              reason: "RETURN",
+              note: `Deleted delivery to ${log.destinationClient} - stock returned`,
+              unitName: item.unitName,
+              quantity: item.quantity,
+              refType: "DELIVERY",
+              refId: log.id,
+            },
+          });
+        }
+      }
+      await tx.deliveryLog.delete({ where: { id } });
+    });
+
+    refreshShopPaths(["/delivery", "/reports", "/inventory"]);
     return { ok: true, data: null };
+  } catch (error) {
+    return { ok: false, error: toActionError(error) };
+  }
+}
+
+export async function getDeliveries(): Promise<ActionResult<import("@/lib/types").DeliveryLogData[]>> {
+  try {
+    const logs = await prisma.deliveryLog.findMany({
+      orderBy: { createdAt: "desc" },
+      include: {
+        customer: { select: { name: true, phone: true, address: true, currentBalance: true } },
+        items: { include: { product: { select: { name: true, baseUnit: true } } } },
+      },
+    });
+
+    const data: import("@/lib/types").DeliveryLogData[] = logs.map((log) => ({
+      id: log.id,
+      driverName: log.driverName,
+      driverPhone: log.driverPhone,
+      vehicleNumber: log.vehicleNumber,
+      destinationClient: log.destinationClient,
+      customerId: log.customerId,
+      customerName: log.customer?.name ?? null,
+      customerPhone: log.customer?.phone ?? null,
+      customerAddress: log.customer?.address ?? null,
+      customerBalance: log.customer?.currentBalance ?? 0,
+      scheduledAt: log.scheduledAt?.toISOString() ?? null,
+      startedAt: log.startedAt?.toISOString() ?? null,
+      deliveredAt: log.deliveredAt?.toISOString() ?? null,
+      itemsSummary: log.itemsSummary,
+      totalValue: log.totalValue,
+      status: log.status,
+      proofOfDelivery: log.proofOfDelivery,
+      deliveryNotes: log.deliveryNotes,
+      settlementNotes: log.settlementNotes,
+      createdAt: log.createdAt.toISOString(),
+      updatedAt: log.updatedAt.toISOString(),
+      items: log.items.map((item) => ({
+        id: item.id,
+        deliveryLogId: item.deliveryLogId,
+        productId: item.productId,
+        productName: item.product.name,
+        productBaseUnit: item.product.baseUnit,
+        quantity: item.quantity,
+        unitName: item.unitName,
+        unitPrice: item.unitPrice,
+        subtotal: item.subtotal,
+      })),
+    }));
+
+    return { ok: true, data };
   } catch (error) {
     return { ok: false, error: toActionError(error) };
   }

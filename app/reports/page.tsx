@@ -1,15 +1,26 @@
 import { headers } from "next/headers";
 import os from "os";
 import QRCode from "qrcode";
+import type { ReactNode } from "react";
+import {
+  BadgePercent,
+  Banknote,
+  BarChart3,
+  CircleDollarSign,
+  HandCoins,
+  TrendingUp,
+  Wallet,
+} from "lucide-react";
 import prisma from "@/lib/prisma";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/page-header";
 import { autoBackupIfNeeded, listBackups } from "@/lib/backup";
 import { formatNPR, formatPercentage, formatQuantity, round2 } from "@/lib/format";
 import { startOfDay, startOfToday, toDateKey } from "@/lib/utils";
 import BackupPanel from "./backup-panel";
 import DateNav from "./date-nav";
 import TransactionsTable from "./transactions-table";
-import type { ReportRowData } from "@/lib/types";
+import type { ReportRowData, ProductCardData, CustomerOption } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +57,7 @@ export default async function ReportsPage({
   const autoBackup = await autoBackupIfNeeded();
   const backups = listBackups();
 
-  const [sales, payments, outstanding, products] = await Promise.all([
+  const [sales, payments, outstanding, products, allCustomers] = await Promise.all([
     prisma.transaction.findMany({
       where: { createdAt: { gte: dayStart, lt: dayEnd }, type: { in: ["RETAIL", "WHOLESALE"] } },
       orderBy: { createdAt: "desc" },
@@ -62,10 +73,50 @@ export default async function ReportsPage({
     }),
     prisma.customer.aggregate({ _sum: { currentBalance: true }, where: { currentBalance: { gt: 0 } } }),
     prisma.product.findMany({
-      select: { id: true, name: true, stockQuantity: true, baseUnit: true, lowStockAt: true, retailPrice: true, costPrice: true },
+      select: {
+        id: true,
+        name: true,
+        stockQuantity: true,
+        baseUnit: true,
+        lowStockAt: true,
+        retailPrice: true,
+        wholesalePrice: true,
+        costPrice: true,
+        sellAs: true,
+        manufacturingDate: true,
+        expiryDate: true,
+        units: { select: { id: true, name: true, factor: true }, orderBy: { factor: "desc" } },
+      },
       orderBy: { stockQuantity: "asc" },
     }),
+    prisma.customer.findMany({ orderBy: [{ currentBalance: "desc" }, { name: "asc" }] }),
   ]);
+
+  const productData: ProductCardData[] = products.map((p) => ({
+    id: p.id,
+    name: p.name,
+    category: "",
+    barcode: null,
+    retailPrice: p.retailPrice,
+    wholesalePrice: p.wholesalePrice,
+    costPrice: p.costPrice,
+    sellAs: p.sellAs as ProductCardData["sellAs"],
+    stockQuantity: p.stockQuantity,
+    baseUnit: p.baseUnit,
+    lowStockAt: p.lowStockAt,
+    manufacturingDate: p.manufacturingDate?.toISOString() ?? null,
+    expiryDate: p.expiryDate?.toISOString() ?? null,
+    units: p.units.map((u) => ({ id: u.id, name: u.name, factor: u.factor })),
+  }));
+
+  const customerData: CustomerOption[] = allCustomers.map((c) => ({
+    id: c.id,
+    name: c.name,
+    phone: c.phone,
+    address: c.address,
+    currentBalance: c.currentBalance,
+    isFavorite: c.isFavorite,
+  }));
 
   const cashFromSales = round2(sales.reduce((sum, t) => sum + t.paidAmount, 0));
   const udharoAdded = round2(sales.reduce((sum, t) => sum + Math.max(t.totalAmount - t.paidAmount, 0), 0));
@@ -93,7 +144,9 @@ export default async function ReportsPage({
       time: t.createdAt.toISOString(),
       typeLabel: t.type,
       customerName: t.customer?.name ?? null,
+      customerId: t.customerId,
       items: t.items.map((i) => ({
+        productId: i.productId,
         name: i.product.name,
         quantity: i.quantity,
         unitName: i.unitName,
@@ -114,6 +167,7 @@ export default async function ReportsPage({
       time: p.createdAt.toISOString(),
       typeLabel: "PAYMENT",
       customerName: p.customer?.name ?? null,
+      customerId: p.customerId,
       items: [],
       totalAmount: p.totalAmount,
       discountAmount: 0,
@@ -124,13 +178,67 @@ export default async function ReportsPage({
   }
   rows.sort((a, b) => (a.time < b.time ? 1 : -1));
 
-  const metrics: { label: string; value: number; sub: string; tone?: string }[] = [
-    { label: "Cash from Sales", value: cashFromSales, sub: `${sales.length} bill${sales.length === 1 ? "" : "s"}` },
-    { label: "Profit Today", value: profitToday, sub: missingCostProducts > 0 ? `set cost prices — ${missingCostProducts} product${missingCostProducts === 1 ? "" : "s"} sold today have none` : profitMargin ? `≈ ${profitMargin} margin, after COGS` : "no sales to report", tone: "text-emerald-700" },
-    { label: "Udharo Added", value: udharoAdded, sub: "credit given this day", tone: "text-amber-600" },
-    { label: "Credit Payments", value: creditPayments, sub: `${payments.length} khata settlement${payments.length === 1 ? "" : "s"}`, tone: "text-emerald-700" },
-    { label: "Discounts Given", value: discountsGiven, sub: "bhaansi off this day", tone: "text-rose-600" },
-    { label: "Total Cash in Hand", value: totalCash, sub: "count this in the cash drawer", tone: "text-foreground" },
+  const metrics: {
+    label: string;
+    value: number;
+    sub: string;
+    icon: ReactNode;
+    iconClass: string;
+    valueClass: string;
+  }[] = [
+    {
+      label: "Cash from Sales",
+      value: cashFromSales,
+      sub: `${sales.length} bill${sales.length === 1 ? "" : "s"}`,
+      icon: <Banknote size={20} />,
+      iconClass: "bg-emerald-100 text-emerald-700",
+      valueClass: "text-foreground",
+    },
+    {
+      label: "Profit Today",
+      value: profitToday,
+      sub:
+        missingCostProducts > 0
+          ? `set cost prices — ${missingCostProducts} product${missingCostProducts === 1 ? "" : "s"} sold today have none`
+          : profitMargin
+            ? `≈ ${profitMargin} margin, after COGS`
+            : "no sales to report",
+      icon: <TrendingUp size={20} />,
+      iconClass: "bg-emerald-100 text-emerald-700",
+      valueClass: "text-emerald-700",
+    },
+    {
+      label: "Udharo Added",
+      value: udharoAdded,
+      sub: "credit given this day",
+      icon: <HandCoins size={20} />,
+      iconClass: "bg-amber-100 text-amber-700",
+      valueClass: "text-amber-600",
+    },
+    {
+      label: "Credit Payments",
+      value: creditPayments,
+      sub: `${payments.length} khata settlement${payments.length === 1 ? "" : "s"}`,
+      icon: <Wallet size={20} />,
+      iconClass: "bg-emerald-100 text-emerald-700",
+      valueClass: "text-emerald-700",
+    },
+    {
+      label: "Discounts Given",
+      value: discountsGiven,
+      sub: "bhaansi off this day",
+      icon: <BadgePercent size={20} />,
+      iconClass: "bg-rose-100 text-rose-600",
+      valueClass: "text-rose-600",
+    },
+    {
+      label: "Total Cash in Hand",
+      value: totalCash,
+      sub: "count this in the cash drawer",
+      icon: <CircleDollarSign size={20} />,
+      iconClass: "bg-primary/10 text-primary",
+      valueClass: "text-primary",
+    },
   ];
 
   const lanUrl = await getLanUrl();
@@ -138,21 +246,23 @@ export default async function ReportsPage({
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground md:text-3xl">Reports</h1>
-          <p className="mt-1 text-muted-foreground">
-            Day-by-day record of everything the shop did — match the cash numbers against the drawer.
-          </p>
-        </div>
-        <DateNav dateKey={dateKey} />
-      </header>
+      <PageHeader
+        title="Reports"
+        subtitle="Day-by-day record of everything the shop did — match the cash numbers against the drawer."
+        icon={<BarChart3 size={22} />}
+        actions={<DateNav dateKey={dateKey} />}
+      />
 
-      <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {metrics.map((m) => (
           <div key={m.label} className="card p-4">
-            <p className="text-sm font-semibold text-muted-foreground">{m.label}</p>
-            <p className={`mt-2 text-2xl font-bold ${m.tone ?? "text-foreground"}`}>{formatNPR(m.value)}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-muted-foreground">{m.label}</p>
+              <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${m.iconClass}`}>
+                {m.icon}
+              </span>
+            </div>
+            <p className={`mt-2 text-2xl font-bold ${m.valueClass}`}>{formatNPR(m.value)}</p>
             <p className="mt-1 text-xs text-muted-foreground">{m.sub}</p>
           </div>
         ))}
@@ -169,7 +279,7 @@ export default async function ReportsPage({
             </p>
           </div>
         </div>
-        <TransactionsTable rows={rows} />
+        <TransactionsTable rows={rows} products={productData} customers={customerData} />
       </section>
 
       <section className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">

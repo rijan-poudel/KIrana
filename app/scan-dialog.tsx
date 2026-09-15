@@ -41,10 +41,15 @@ export default function ScanDialog({
   open,
   onOpenChange,
   onDetected,
+  initialPresence,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onDetected: (code: string) => void;
+  /** Seed the presence guard so this code is treated as "still in frame" until
+   *  it physically leaves and returns after REPRESENCE_DELAY_MS. Prevents a
+   *  just-added item from immediately re-triggering when the camera resumes. */
+  initialPresence?: string | null;
 }) {
   // Stable per-mount: is the camera API reachable at all, and which engine?
   const [secure] = useState(
@@ -69,7 +74,7 @@ export default function ScanDialog({
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scannerRef = useRef<{ stop: () => Promise<void>; clear: () => void } | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const rafRef = useRef<number>(0);
   const torchTrackRef = useRef<MediaStreamTrack | null>(null);
   // Barcode presence tracking — see RE-PRESENT_DELAY_MS above.
   const seenRef = useRef<{ code: string; absentAt: number }>({ code: "", absentAt: 0 });
@@ -88,7 +93,9 @@ export default function ScanDialog({
   // Reset the session each time the dialog opens.
   useEffect(() => {
     if (!open) return;
-    seenRef.current = { code: "", absentAt: 0 };
+    seenRef.current = initialPresence
+      ? { code: initialPresence.trim(), absentAt: Date.now() }
+      : { code: "", absentAt: 0 };
     setAddedCount(0);
     setJustAdded(null);
     setManualCode("");
@@ -174,19 +181,37 @@ export default function ScanDialog({
           });
 
           setStatus("scanning");
-          timerRef.current = setInterval(() => {
-            if (cancelled || !videoRef.current || videoRef.current.readyState < 2) return;
-            detector
-              .detect(videoRef.current)
-              .then((results) => {
-                if (cancelled) return;
-                if (results.length > 0) handleDetection(results[0].rawValue);
-                else handleMiss();
-              })
-              .catch(() => {
-                // A transient frame decode error is normal — keep scanning.
-              });
-          }, 130);
+
+          // Frame-synced decode loop. requestAnimationFrame keeps decode cadence
+          // tied to the display instead of a blind timer; a timestamp guard caps
+          // detect() to ~25 attempts/sec and the in-flight flag guarantees we
+          // never pile overlapping decodes onto a slow phone.
+          const DETECT_INTERVAL_MS = 40;
+          let lastDetect = 0;
+          let inFlight = false;
+          const loop = (now: number) => {
+            if (cancelled) return;
+            if (!inFlight && now - lastDetect >= DETECT_INTERVAL_MS && videoRef.current?.readyState! >= 2) {
+              const video = videoRef.current!;
+              inFlight = true;
+              lastDetect = now;
+              detector
+                .detect(video)
+                .then((results) => {
+                  if (cancelled) return;
+                  if (results.length > 0) handleDetection(results[0].rawValue);
+                  else handleMiss();
+                })
+                .catch(() => {
+                  // A transient frame decode error is normal — keep scanning.
+                })
+                .finally(() => {
+                  inFlight = false;
+                });
+            }
+            rafRef.current = requestAnimationFrame(loop);
+          };
+          rafRef.current = requestAnimationFrame(loop);
         } else {
           const { Html5Qrcode } = await import("html5-qrcode");
           if (cancelled) return;
@@ -231,9 +256,9 @@ export default function ScanDialog({
 
     return () => {
       cancelled = true;
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = 0;
       }
       torchTrackRef.current = null;
       const scanner = scannerRef.current;

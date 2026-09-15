@@ -6,7 +6,12 @@ export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Stock" };
 
-export default async function InventoryPage() {
+export default async function InventoryPage({ searchParams }: { searchParams: Promise<{ receive?: string; qty?: string; unit?: string }> }) {
+  const params = await searchParams;
+  const receiveId = params.receive ?? "";
+  const receiveQty = params.qty ? Number(params.qty) : 0;
+  const receiveUnit = params.unit ?? "";
+
   const [products, moves] = await Promise.all([
     prisma.product.findMany({
       orderBy: [{ category: "asc" }, { name: "asc" }],
@@ -27,9 +32,12 @@ export default async function InventoryPage() {
     retailPrice: p.retailPrice,
     wholesalePrice: p.wholesalePrice,
     costPrice: p.costPrice,
+    sellAs: p.sellAs as ProductCardData["sellAs"],
     stockQuantity: p.stockQuantity,
     baseUnit: p.baseUnit,
     lowStockAt: p.lowStockAt,
+    manufacturingDate: p.manufacturingDate?.toISOString() ?? null,
+    expiryDate: p.expiryDate?.toISOString() ?? null,
     units: p.units.map((u) => ({ id: u.id, name: u.name, factor: u.factor })),
   }));
 
@@ -45,5 +53,5 @@ export default async function InventoryPage() {
     createdAt: m.createdAt.toISOString(),
   }));
 
-  return <InventoryClient products={productData} moves={moveData} />;
+  return <InventoryClient products={productData} moves={moveData} receiveId={receiveId} receiveQty={receiveQty} receiveUnit={receiveUnit} />;
 }

@@ -2,12 +2,11 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-/* Light-locked theme: dark: variants only apply under a .dark ancestor, which the app never sets. */
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
-  --font-heading: var(--font-sans);
+  --font-sans: var(--font-nunito-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-heading: var(--font-nunito), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 @theme inline {
@@ -42,6 +41,20 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-eager-green: #58cc02;
+  --color-storybook-green: #d7ffb8;
+  --color-spark-blue: #1cb0f6;
+  --color-fresh-leaf: #a5ed6e;
+  --color-night-ink: #000437;
+  --color-charcoal: #4b4b4b;
+  --color-pencil-gray: #777777;
+  --color-faded-gray: #afafaf;
+  --color-pan-amber: #f59e0b;
+  --color-pan-bg: #fffbeb;
+  --color-unit-kg: #58cc02;
+  --color-unit-pcs: #1cb0f6;
+  --color-unit-dozen: #a855f7;
+  --color-unit-liter: #f59e0b;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -50,38 +63,44 @@
 
 :root {
   color-scheme: light;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+
+  --background: #ffffff;
+  --foreground: #4b4b4b;
+  --card: #ffffff;
+  --card-foreground: #4b4b4b;
+  --popover: #ffffff;
+  --popover-foreground: #4b4b4b;
+
+  --primary: #58cc02;
+  --primary-foreground: #ffffff;
+  --secondary: #d7ffb8;
+  --secondary-foreground: #4b4b4b;
+  --muted: #f7f7f7;
+  --muted-foreground: #777777;
+  --accent: #d7ffb8;
+  --accent-foreground: #4b4b4b;
+
+  --destructive: #ff4b4b;
+  --border: #afafaf;
+  --input: #afafaf;
+  --ring: #58cc02;
+
+  --chart-1: #58cc02;
+  --chart-2: #f59e0b;
+  --chart-3: #ff4b4b;
+  --chart-4: #1cb0f6;
+  --chart-5: #a855f7;
+
+  --radius: 0.75rem;
+
+  --sidebar: #1a3a2a;
+  --sidebar-foreground: #e0e0e0;
+  --sidebar-primary: #58cc02;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #2a5a3a;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #2a5a3a;
+  --sidebar-ring: #58cc02;
 }
 
 @layer base {
@@ -98,7 +117,11 @@
     @apply bg-background text-foreground antialiased;
   }
 
-  /* Hide number-input spinners — steppers on screen do the job better on touch. */
+  ::selection {
+    background: #58cc0240;
+    color: #4b4b4b;
+  }
+
   input[type="number"]::-webkit-outer-spin-button,
   input[type="number"]::-webkit-inner-spin-button {
     -webkit-appearance: none;
@@ -110,7 +133,6 @@
   }
 }
 
-/* 80mm-style thermal receipt: when printing, only the receipt sheet shows. */
 @media print {
   body * {
     visibility: hidden;
@@ -129,12 +151,59 @@
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* Shared app utility — the one survivor of the shadcn migration;      */
-/* everything else moved to components/ui/*.                           */
-/* ------------------------------------------------------------------ */
-@layer components {
-  .card {
-    @apply rounded-xl border border-border bg-card shadow-sm;
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
   }
+}
+
+@utility card {
+  @apply rounded-xl border-2 border-border bg-card;
+}
+
+@utility card-hover {
+  @apply rounded-xl border-2 border-border bg-card;
+  transition:
+    border-color 150ms ease-out,
+    transform 150ms ease-out;
+
+  &:hover {
+    @apply border-eager-green;
+    transform: translateY(-1px);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+}
+
+@utility unit-kg {
+  color: #58cc02;
+  background: #58cc0215;
+  border-color: #58cc0240;
+}
+
+@utility unit-pcs {
+  color: #1cb0f6;
+  background: #1cb0f615;
+  border-color: #1cb0f640;
+}
+
+@utility unit-dozen {
+  color: #a855f7;
+  background: #a855f715;
+  border-color: #a855f740;
+}
+
+@utility unit-liter {
+  color: #f59e0b;
+  background: #f59e0b15;
+  border-color: #f59e0b40;
+}
+
+@utility unit-default {
+  color: #777777;
+  background: #77777715;
+  border-color: #77777740;
 }

@@ -8,6 +8,9 @@ export type ActionResult<T = null> = { ok: true; data: T } | { ok: false; error:
 /** Pricing mode for the billing screen. */
 export type PriceMode = "retail" | "wholesale";
 
+/** Who a product is sold to: walk-in retail, wholesale buyers, or both. */
+export type SellAs = "RETAIL" | "WHOLESALE" | "BOTH";
+
 /** A sellable pack size defined on a product ("Carton" ×30 pcs, "gram" ×0.001 kg…). */
 export type ProductUnitData = { id: string; name: string; factor: number };
 
@@ -20,9 +23,12 @@ export type ProductCardData = {
   retailPrice: number;
   wholesalePrice: number;
   costPrice: number; // purchase cost per base unit
+  sellAs: SellAs;
   stockQuantity: number; // in base units
   baseUnit: string;
   lowStockAt: number;
+  manufacturingDate: string | null; // ISO date, batch manufactured
+  expiryDate: string | null; // ISO date, batch expires
   units: ProductUnitData[];
 };
 
@@ -45,9 +51,12 @@ export type ProductInput = {
   retailPrice: number;
   wholesalePrice: number;
   costPrice: number; // purchase cost per base unit
+  sellAs: SellAs;
   baseUnit: string;
   lowStockAt: number;
   openingStock: number; // create only; logged as an OPENING stock move
+  manufacturingDate?: string | null; // ISO date, optional
+  expiryDate?: string | null; // ISO date, optional
   units: ProductUnitInput[];
 };
 
@@ -61,6 +70,10 @@ export type CheckoutLineInput = {
   productId: string;
   quantity: number; // in the chosen unit
   unitName?: string; // omit = product base unit
+  /** Per base unit, in rupees. Omit to charge the product's current retail/wholesale price. */
+  unitPrice?: number;
+  /** Per-line bhaansi in rupees, taken off this item's subtotal. Optional. */
+  discount?: number;
 };
 
 /** Bhaansi choice applied to a whole bill. `value` is rupees (flat) or a percent. */
@@ -84,6 +97,13 @@ export type CheckoutLineResult = {
   baseUnit: string;
   unitPrice: number; // per base unit
   subtotal: number;
+};
+
+export type EditTransactionInput = {
+  transactionId: string;
+  items: CheckoutLineInput[];
+  customerId: string | null;
+  discount: BillDiscount | null;
 };
 
 export type CheckoutResult = {
@@ -128,6 +148,21 @@ export type StockAdjustInput = {
   unitName?: string;
   note?: string;
   costTotal?: number;
+  manufacturingDate?: string | null; // batch dates, applied on PURCHASE
+  expiryDate?: string | null; // batch dates, applied on PURCHASE
+};
+
+/** One line of the batch "Receive stock" flow. Existing products are matched by
+ * `productId`; otherwise a brand-new product is created from the typed name.
+ * Received quantity + optional per-line cost; batch dates are applied to every line. */
+export type ReceiveStockLineInput = {
+  name: string;
+  productId?: string | null;
+  category?: string;
+  retailPrice?: number; // for new products
+  quantity: number;
+  unitName?: string;
+  costTotal?: number;
 };
 
 export type StockMoveData = {
@@ -145,18 +180,57 @@ export type StockMoveData = {
 export type DeliveryLogData = {
   id: string;
   driverName: string;
+  driverPhone: string | null;
+  vehicleNumber: string | null;
   destinationClient: string;
+  customerId: string | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  customerAddress: string | null;
+  customerBalance: number;
+  scheduledAt: string | null;
+  startedAt: string | null;
+  deliveredAt: string | null;
   itemsSummary: string;
   totalValue: number;
   status: string;
+  proofOfDelivery: string | null;
+  deliveryNotes: string | null;
+  settlementNotes: string | null;
   createdAt: string;
+  updatedAt: string;
+  items: DeliveryItemData[];
+};
+
+export type DeliveryItemData = {
+  id: string;
+  deliveryLogId: string;
+  productId: string;
+  productName: string;
+  productBaseUnit: string;
+  quantity: number;
+  unitName: string;
+  unitPrice: number;
+  subtotal: number;
 };
 
 export type DeliveryInput = {
   driverName: string;
+  driverPhone?: string | null;
+  vehicleNumber?: string | null;
   destinationClient: string;
+  customerId?: string | null;
+  scheduledAt?: string | null; // ISO string
   itemsSummary: string;
   totalValue: number;
+  items: DeliveryItemInput[];
+};
+
+export type DeliveryItemInput = {
+  productId: string;
+  quantity: number; // in base units
+  unitName: string;
+  unitPrice: number;
 };
 
 export type BackupInfo = {
@@ -189,13 +263,17 @@ export type ReceiptData = {
   items: ReceiptLine[];
 };
 
+/** A line on a day-report row, with the product id so it can be edited later. */
+export type ReportLineData = ReceiptLine & { productId: string };
+
 /** One row of the day report table. */
 export type ReportRowData = {
   id: string;
   time: string;
   typeLabel: string; // RETAIL | WHOLESALE | PAYMENT
   customerName: string | null;
-  items: ReceiptLine[];
+  customerId: string | null;
+  items: ReportLineData[];
   totalAmount: number;
   discountAmount: number;
   discountNote: string | null;

@@ -35,10 +35,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FormField, parseInputNumber } from "@/components/form-field";
 import type { CustomerOption, HistoryEntry } from "@/lib/types";
 import { formatDateTime, formatNPR, formatQuantity, round2 } from "@/lib/format";
 import { createCustomer, deleteCustomer, getCustomerHistory, recordPayment, setCustomerFavorite, updateCustomer } from "@/actions/shop-actions";
+import { PageHeader } from "@/components/page-header";
 
 export default function KhataClient({ customers }: { customers: CustomerOption[] }) {
   const router = useRouter();
@@ -85,17 +86,16 @@ export default function KhataClient({ customers }: { customers: CustomerOption[]
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground md:text-3xl">Udharo Khata</h1>
-          <p className="mt-1 text-muted-foreground">
-            {customers.length} customers • {withDues} with outstanding credit
-          </p>
-        </div>
-        <Button size="lg" onClick={() => setFormTarget({ mode: "new" })}>
-          <UserPlus /> Add Customer
-        </Button>
-      </header>
+      <PageHeader
+        title="Udharo Khata"
+        subtitle={`${customers.length} customers • ${withDues} with outstanding credit`}
+        icon={<BookOpen size={22} />}
+        actions={
+          <Button size="lg" onClick={() => setFormTarget({ mode: "new" })}>
+            <UserPlus /> Add Customer
+          </Button>
+        }
+      />
 
       <div className="card mt-5 flex items-center justify-between p-4">
         <div className="flex items-center gap-3">
@@ -254,9 +254,15 @@ function CustomerFormDialog({ customer, onClose }: { customer: CustomerOption | 
   const [phone, setPhone] = useState(customer?.phone ?? "");
   const [address, setAddress] = useState(customer?.address ?? "");
   const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState<{ name?: string }>({});
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (!name.trim()) {
+      setErrors({ name: "Name is required." });
+      return;
+    }
+    setErrors({});
     setSubmitting(true);
     const input = { name, phone, address };
     const response = customer ? await updateCustomer(customer.id, input) : await createCustomer(input);
@@ -282,20 +288,22 @@ function CustomerFormDialog({ customer, onClose }: { customer: CustomerOption | 
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <Label htmlFor="c-name">Customer name *</Label>
+          <FormField label="Customer name *" htmlFor="c-name" error={errors.name}>
             <Input
               id="c-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                setErrors({});
+              }}
               placeholder="e.g., Ram Bahadur Gurung"
+              aria-invalid={!!errors.name}
               required
               autoFocus
             />
-          </div>
+          </FormField>
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="c-phone">Phone</Label>
+            <FormField label="Phone" htmlFor="c-phone">
               <Input
                 id="c-phone"
                 value={phone}
@@ -303,16 +311,15 @@ function CustomerFormDialog({ customer, onClose }: { customer: CustomerOption | 
                 inputMode="tel"
                 placeholder="98-XXXXXXXX"
               />
-            </div>
-            <div>
-              <Label htmlFor="c-address">Ward / area</Label>
+            </FormField>
+            <FormField label="Ward / area" htmlFor="c-address">
               <Input
                 id="c-address"
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 placeholder="e.g., Gaindakot Ward No. 5"
               />
-            </div>
+            </FormField>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
@@ -460,24 +467,28 @@ function PaymentDialog({ customer, onClose }: { customer: CustomerOption; onClos
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [newBalance, setNewBalance] = useState<number | null>(null);
+  const [recordedAmount, setRecordedAmount] = useState(0);
 
   const outstanding = customer.currentBalance;
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    setError(null);
-    const value = Number.parseFloat(amount);
-    if (Number.isNaN(value) || value <= 0) {
+    const parsed = parseInputNumber(amount);
+    if ("error" in parsed) {
+      setError(parsed.error);
+      return;
+    }
+    if (parsed.value <= 0) {
       setError("Enter the cash amount the customer paid.");
       return;
     }
+    setError(null);
     setSubmitting(true);
-    const response = await recordPayment({ customerId: customer.id, amount: value });
+    const response = await recordPayment({ customerId: customer.id, amount: parsed.value });
     setSubmitting(false);
     if (response.ok) {
-      // The list behind this dialog and the day report update immediately —
-      // waiting for the user to close the modal would show a stale balance.
       router.refresh();
+      setRecordedAmount(parsed.value);
       setNewBalance(response.data.newBalance);
     } else {
       setError(response.error);
@@ -498,8 +509,7 @@ function PaymentDialog({ customer, onClose }: { customer: CustomerOption; onClos
             </DialogHeader>
 
             <form onSubmit={handleSubmit} className="space-y-3">
-              <div>
-                <Label htmlFor="pay-amount">Cash received (Rs.) *</Label>
+              <FormField label="Cash received (Rs.) *" htmlFor="pay-amount" error={error ?? undefined}>
                 <Input
                   id="pay-amount"
                   type="number"
@@ -507,28 +517,28 @@ function PaymentDialog({ customer, onClose }: { customer: CustomerOption; onClos
                   min={0}
                   step="0.01"
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={(e) => {
+                    setAmount(e.target.value);
+                    setError(null);
+                  }}
                   className="text-xl"
                   placeholder="0.00"
                   autoFocus
+                  aria-invalid={!!error}
                   required
                 />
-                {outstanding > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setAmount(String(outstanding))}
-                    className="mt-2 text-sm font-semibold text-emerald-700 hover:underline"
-                  >
-                    Pay full outstanding ({formatNPR(outstanding)})
-                  </button>
-                )}
-              </div>
+              </FormField>
 
-              {error && (
-                <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700">
-                  <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-                  {error}
-                </div>
+              {outstanding > 0 && (
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  onClick={() => setAmount(String(outstanding))}
+                  className="self-start px-0 font-semibold text-emerald-700"
+                >
+                  Pay full outstanding ({formatNPR(outstanding)})
+                </Button>
               )}
 
               <DialogFooter>
@@ -548,7 +558,7 @@ function PaymentDialog({ customer, onClose }: { customer: CustomerOption; onClos
             </div>
             <h2 className="mt-3 text-xl font-bold text-foreground">Payment Recorded</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              {formatNPR(Number.parseFloat(amount) || 0)} received from {customer.name}.
+              {formatNPR(recordedAmount)} received from {customer.name}.
             </p>
             <p className="mt-3 text-lg text-foreground">
               New balance:{" "}
