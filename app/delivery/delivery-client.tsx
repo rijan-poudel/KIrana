@@ -22,6 +22,7 @@ import {
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Button04 } from "@/components/button-04";
 import {
   Dialog,
   DialogContent,
@@ -36,6 +37,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FormField, parseInputNumber, parseOptionalNumber } from "@/components/form-field";
 import type { CustomerOption, DeliveryLogData, DeliveryItemData, ProductCardData } from "@/lib/types";
 import { formatDateTime, formatDate, formatNPR, formatTime } from "@/lib/format";
+import { NprFlow } from "@/components/number-flow";
 import {
   createDeliveryLog,
   deleteDeliveryLog,
@@ -221,16 +223,17 @@ export default function DeliveryClient({
           {/* Filter chips */}
           <div className="flex flex-wrap gap-2">
             {(["ALL", "TODAY", "OVERDUE", "UPCOMING", "PENDING", "ASSIGNED", "LOADED", "IN_TRANSIT", "DELIVERED", "SETTLED", "RETURNED", "CANCELLED"] as StatusFilter[]).map((s) => (
-              <Button
+              <Button04
                 key={s}
                 type="button"
-                variant={filter === s ? "default" : "outline"}
-                size="lg"
                 aria-pressed={filter === s}
                 onClick={() => setFilter(s)}
                 className={cn(
-                  "h-9 text-xs font-bold",
-                  s === "OVERDUE" && counts.OVERDUE > 0 && filter !== "OVERDUE" && "border-red-400 text-red-600",
+                  "h-9 rounded-full px-3 py-0 text-xs font-extrabold [--btn-radius:9999px]",
+                  s === "OVERDUE" &&
+                    counts.OVERDUE > 0 &&
+                    filter !== "OVERDUE" &&
+                    "[--btn-base:var(--color-destructive)] [--btn-fill:var(--color-destructive)]",
                 )}
               >
                 {s === "ALL"
@@ -243,7 +246,7 @@ export default function DeliveryClient({
                         ? "Upcoming"
                         : STATUS_LABEL[s] ?? s}{" "}
                 ({counts[s]})
-              </Button>
+              </Button04>
             ))}
           </div>
 
@@ -678,20 +681,16 @@ function DispatchForm({
             <Button
               type="button"
               variant={!useManual ? "default" : "outline"}
-              size="sm"
-              className="h-8 text-xs"
               onClick={() => { setUseManual(false); setManualDestination(""); setErrors((p) => ({ ...p, destination: "" })); }}
             >
-              <UserRound size={13} /> From Khata
+              <UserRound size={16} /> From Khata
             </Button>
             <Button
               type="button"
               variant={useManual ? "default" : "outline"}
-              size="sm"
-              className="h-8 text-xs"
               onClick={() => { setUseManual(true); setCustomerId(null); setErrors((p) => ({ ...p, destination: "" })); }}
             >
-              <MapPin size={13} /> Manual
+              <MapPin size={16} /> Manual
             </Button>
           </div>
         )}
@@ -827,7 +826,7 @@ function DispatchForm({
           </table>
           <div className="flex justify-between border-t border-border bg-muted/30 px-3 py-1.5 text-xs font-bold">
             <span>Total</span>
-            <span>{formatNPR(computeTotal())}</span>
+            <NprFlow value={computeTotal()} className="text-xs font-bold" willChange />
           </div>
           {errors.items && selectedItems.length > 0 && (
             <p role="alert" className="border-t border-border px-3 py-1.5 text-xs text-destructive">

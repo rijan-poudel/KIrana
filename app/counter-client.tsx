@@ -13,18 +13,20 @@ import {
   RotateCcw,
   ScanBarcode,
   Search,
+  ShoppingBasket,
   ShoppingCart,
-  Store,
   Trash2,
   UserRound,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Button04 } from "@/components/button-04";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { CustomerOption, PriceMode, ProductCardData, SellAs } from "@/lib/types";
 import { formatDate, formatNPR, formatQuantity, formatTime, round2 } from "@/lib/format";
+import { CountUpNpr, NprFlow } from "@/components/number-flow";
 import { CART_STORAGE_KEY } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import CheckoutDialog, { type CheckoutLine } from "./checkout-dialog";
@@ -787,8 +789,8 @@ export default function CounterClient({
       {/* Masthead: date + today's pulse · search · quick actions */}
       <header className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-3">
         <div className="flex min-w-0 items-center gap-2.5">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-eager-green text-white">
-            <Store size={20} />
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-eager-green text-white">
+            <ShoppingBasket size={20} />
           </span>
           <div className="min-w-0">
             <p className="font-heading text-sm font-extrabold leading-tight text-charcoal">
@@ -796,7 +798,7 @@ export default function CounterClient({
             </p>
             <p className="truncate text-xs font-medium text-pencil-gray">
               {todayStats.bills} bill{todayStats.bills === 1 ? "" : "s"} today ·{" "}
-              <span className="font-bold text-eager-green">{formatNPR(todayStats.cashCollected)}</span> cash in
+              <CountUpNpr value={todayStats.cashCollected} className="font-bold text-eager-green" /> cash in
             </p>
           </div>
         </div>
@@ -891,18 +893,15 @@ export default function CounterClient({
               )}
             </div>
           )}
-          <p className="mt-1.5 hidden text-[11px] font-medium text-pencil-gray/80 md:block">
-            Scan from anywhere on this screen — USB scanners are always listening.
-          </p>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
           <Link href="/inventory" title="Add or fix products">
-            <Button variant="outline" size="lg" className="gap-1.5">
+            <Button variant="outline" className="gap-1.5">
               <Boxes /> Products
             </Button>
           </Link>
-          <Button variant="outline" size="lg" className="gap-1.5" onClick={() => setScanOpen(true)}>
+          <Button variant="outline" className="gap-1.5" onClick={() => setScanOpen(true)}>
             <ScanBarcode /> Scan
           </Button>
         </div>
@@ -915,41 +914,29 @@ export default function CounterClient({
             {/* Bill header: PAN toggle left, date right, customer + pricing mode below */}
             <div className={cn("border-b-2 border-faded-gray/70 p-3.5", panMode && "border-amber-200")}>
               <div className="flex items-center justify-between gap-3">
-                {panMode ? (
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border-2 border-amber-400 bg-amber-100 px-3 text-xs font-extrabold tracking-wider text-amber-800 uppercase">
-                      <FileText size={13} /> PAN bill
-                    </span>
+                <div className="flex min-w-0 items-center gap-2">
+                  <Button04
+                    type="button"
+                    aria-pressed={panMode}
+                    onClick={() => {
+                      if (panMode) setPanNumber("");
+                      setPanMode(!panMode);
+                    }}
+                    title="Tax invoice for businesses — switch on to add a bill number"
+                    className="h-9 rounded-full px-3 py-0 text-xs font-extrabold [--btn-radius:9999px] [--btn-fill:var(--color-pan-amber)]"
+                  >
+                    <FileText size={16} /> PAN bill
+                  </Button04>
+                  {panMode && (
                     <input
                       value={panNumber}
                       onChange={(e) => setPanNumber(e.target.value)}
                       placeholder="Bill no."
                       aria-label="PAN bill number"
-                      className="h-8 w-28 rounded-lg border-2 border-amber-300 bg-white px-2 text-sm font-bold text-charcoal focus:border-amber-500 focus:outline-none"
+                      className="h-9 w-28 rounded-xl border-2 border-amber-300 bg-white px-2 text-sm font-bold text-charcoal focus:border-amber-500 focus:outline-none"
                     />
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Turn off PAN bill"
-                      onClick={() => {
-                        setPanMode(false);
-                        setPanNumber("");
-                      }}
-                    >
-                      <X />
-                    </Button>
-                  </div>
-                ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 gap-1.5"
-                    onClick={() => setPanMode(true)}
-                    title="Tax invoice for businesses — prints with a bill number"
-                  >
-                    <FileText /> PAN bill
-                  </Button>
-                )}
+                  )}
+                </div>
                 <p className={cn("text-sm font-extrabold", panMode ? "text-amber-900" : "text-charcoal")}>{formatDate(now)}</p>
               </div>
 
@@ -966,22 +953,18 @@ export default function CounterClient({
                 </div>
                 <div className="flex items-center rounded-full border-2 border-faded-gray bg-storybook-green/30 p-0.5" role="group" aria-label="Pricing mode">
                   {(["retail", "wholesale"] as const).map((m) => (
-                    <button
+                    <Button04
                       key={m}
                       type="button"
                       aria-pressed={mode === m}
                       onClick={() => setMode(m)}
                       className={cn(
-                        "h-8 rounded-full px-3.5 text-xs font-extrabold transition-colors",
-                        mode === m
-                          ? m === "wholesale"
-                            ? "bg-night-ink text-white"
-                            : "bg-eager-green text-white"
-                          : "text-charcoal hover:text-eager-green",
+                        "h-9 rounded-full px-3.5 py-0 text-xs font-extrabold [--btn-radius:9999px]",
+                        m === "wholesale" && "button-04--ink",
                       )}
                     >
                       {m === "retail" ? "Retail" : "Wholesale"}
-                    </button>
+                    </Button04>
                   ))}
                 </div>
               </div>
@@ -1103,7 +1086,7 @@ export default function CounterClient({
                           className="h-10 w-full rounded-lg border-2 border-faded-gray bg-white px-2 text-right text-sm font-bold text-amber-700 tabular-nums focus:border-amber-500 focus:outline-none"
                         />
                         <div className="text-right">
-                          <div className="text-sm font-extrabold text-charcoal tabular-nums">{formatNPR(line.subtotal)}</div>
+                          <NprFlow value={line.subtotal} className="text-sm font-extrabold text-charcoal" willChange />
                           {line.factor !== 1 && (
                             <div className="text-[10px] font-medium text-pencil-gray tabular-nums">
                               = {formatQuantity(line.baseQuantity)} {line.baseUnit}
@@ -1143,9 +1126,7 @@ export default function CounterClient({
                 )}
               >
                 <span className="text-sm font-extrabold tracking-wider uppercase opacity-90">Total</span>
-                <span key={cartTotal} className="animate-in fade-in zoom-in-95 font-heading text-3xl font-extrabold tabular-nums">
-                  {formatNPR(cartTotal)}
-                </span>
+                <NprFlow value={cartTotal} className="font-heading text-3xl font-extrabold" willChange />
               </div>
               <div className="mt-3 flex gap-2">
                 <Button variant="outline" size="lg" className="h-14 flex-1 gap-1.5" onClick={holdBill} disabled={totalLines === 0}>
@@ -1226,20 +1207,15 @@ export default function CounterClient({
               {categories.length > 1 && (
                 <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1">
                   {["all", ...categories].map((c) => (
-                    <button
+                    <Button04
                       key={c}
                       type="button"
                       aria-pressed={category === c}
                       onClick={() => setCategory(c)}
-                      className={cn(
-                        "shrink-0 rounded-full border-2 px-3 py-1 text-xs font-bold transition-colors",
-                        category === c
-                          ? "border-eager-green bg-eager-green text-white"
-                          : "border-faded-gray bg-white text-charcoal hover:border-eager-green/50",
-                      )}
+                      className="shrink-0 rounded-full px-3 py-1 text-xs font-extrabold [--btn-radius:9999px]"
                     >
                       {c === "all" ? "All" : c}
-                    </button>
+                    </Button04>
                   ))}
                 </div>
               )}
@@ -1316,7 +1292,7 @@ export default function CounterClient({
               <span className="flex items-center gap-1.5">
                 <Check /> Checkout
               </span>
-              <span className="text-base tabular-nums">{formatNPR(cartTotal)}</span>
+              <NprFlow value={cartTotal} className="text-base" willChange />
             </Button>
           </div>
         </div>
@@ -1363,7 +1339,7 @@ function ProductTile({
         className="flex items-center justify-between gap-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-eager-green disabled:cursor-not-allowed"
       >
         <UnitChip product={product} unitName={product.baseUnit} />
-        <span className="text-xs font-bold text-charcoal tabular-nums">{formatNPR(price)}</span>
+        <NprFlow value={price} className="text-xs font-bold text-charcoal" />
       </button>
       {out && (
         <Badge variant="destructive" className="absolute top-1.5 right-1.5 px-1.5 text-[9px]">

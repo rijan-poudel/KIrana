@@ -34,12 +34,12 @@ Tallies: `npx tsc --noEmit` + `next build`, dev/prod builds in `.next-dev` /
 
 - Phase 1 — all ✅ (camera/HTTPS phone proxy, reports any-day + void/reprint,
   favorites, mobile UI fixes, daily auto-backup).
-- Phase 2 — items 1–5 ✅ (bhaansi discounts, cost price + profit, held bills,
-  pinned regulars, searchable customer picker). **Items 6–7 ☐ = next:**
+- Phase 2 — items 1–6 ✅ (bhaansi discounts, cost price + profit, held bills,
+  pinned regulars, searchable customer picker, edit saved-bill lines with
+  editable per-line rates + bhaansi that respect the original contract).
+  **Item 7 ☐ = next:**
 
-  > 1. ☐ **Edit a saved bill's lines** (beyond void + re-entry) — fix a wrong
-  >    quantity/price without deleting the record.
-  > 2. ☐ **Day summary print** — print the day's totals (cash/udharo/payments)
+  > 1. ☐ **Day summary print** — print the day's totals (cash/udharo/payments)
   >    for the drawer reconciliation file.
 
 - Phase 3 ☐ (8–11: date-range reports, sales-by-product/category, CSV export,
@@ -62,13 +62,11 @@ Tallies: `npx tsc --noEmit` + `next build`, dev/prod builds in `.next-dev` /
 
 ## Suggested first step
 
-Pick **Phase 2 item 6** (editable saved-bill lines) — the natural next task. It
-touches the edit-bill machinery already present in `app/reports/edit-bill-dialog.tsx`;
-extend it to edit
-line quantities/prices and re-write the StockMove ledger deltas atomically (the
-checkout transaction in `actions/shop-actions.ts` is the pattern to mirror, and
-cost-price-weighted-average updates have the analogous atomicity), then reuse
-the day-report totals already on `/reports` for item 7.
+Pick **Phase 2 item 7** (day summary print) — the totals it needs are already
+computed on `/reports`: cash from sales, udharo added, credit payments, total
+cash in hand, discounts. Add a "Print day summary" action that prints the
+metrics + the day's transaction list for the drawer reconciliation file, reusing
+the existing receipt print bar (window.print + hidden print-only block).
 
 ## Gotchas
 

@@ -7,13 +7,11 @@ import {
   BarChart3,
   BookOpen,
   ChevronRight,
-  Command,
   Package,
   PackagePlus,
+  ShoppingBasket,
   ShoppingCart,
-  Store,
   Truck,
-  WifiOff,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { APP_LOCATION, APP_NAME } from "@/lib/constants";
@@ -76,7 +74,7 @@ export default function Sidebar() {
       <header className="sticky top-0 z-40 border-b-2 border-sidebar-border bg-sidebar text-sidebar-foreground md:hidden">
         <div className="flex items-center gap-2.5 px-4 pt-3.5">
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-eager-green text-white">
-            <Store size={18} />
+            <ShoppingBasket size={18} />
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-base leading-tight font-extrabold">{APP_NAME}</p>
@@ -95,15 +93,16 @@ export default function Sidebar() {
                 key={item.href}
                 href={item.href}
                 prefetch
+                aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold whitespace-nowrap transition-colors",
-                  active
-                    ? "bg-eager-green text-white"
-                    : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  "button-04 group flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-extrabold whitespace-nowrap [--btn-radius:12px]",
+                  active ? "[--btn-base:var(--color-eager-green)]" : "[--btn-base:var(--sidebar-accent)]",
                 )}
               >
                 <Icon size={16} />
-                {item.label}
+                <div className="span-wrapper">
+                  <span className="span-text">{item.label}</span>
+                </div>
               </Link>
             );
           })}
@@ -114,7 +113,7 @@ export default function Sidebar() {
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r-2 border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
         <div className="flex items-center gap-3 px-4 pt-6 pb-5">
           <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-eager-green text-white">
-            <Store size={22} />
+            <ShoppingBasket size={22} />
           </span>
           <div className="min-w-0">
             <p className="truncate text-lg leading-tight font-extrabold">{APP_NAME}</p>
@@ -137,62 +136,35 @@ export default function Sidebar() {
                       key={item.href}
                       href={item.href}
                       prefetch
-                      title={`${item.label} (press ${item.shortcut})`}
+                      aria-current={active ? "page" : undefined}
                       className={cn(
-                        "group relative flex items-center gap-3 rounded-xl border-2 border-transparent px-3 py-2.5 text-[15px] font-bold transition-all",
-                        active
-                          ? "border-eager-green bg-eager-green text-white"
-                          : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:border-sidebar-border",
+                        "button-04 group relative flex items-center gap-3 justify-start rounded-xl px-3 py-2.5 text-[15px] font-extrabold [--btn-radius:12px]",
+                        active ? "[--btn-base:var(--color-eager-green)]" : "[--btn-base:var(--sidebar-accent)]",
                       )}
                     >
                       <Icon
                         size={20}
                         className={cn(
                           "shrink-0 transition-transform group-hover:scale-110",
-                          !active && "text-sidebar-foreground/50 group-hover:text-sidebar-accent-foreground",
+                          !active && "text-sidebar-foreground/60 group-hover:text-white",
                         )}
                       />
-                      <span className="min-w-0 flex-1">{item.label}</span>
+                      <div className="span-wrapper min-w-0 flex-1">
+                        <span className="span-text">{item.label}</span>
+                      </div>
                       {active && (
                         <ChevronRight
                           size={16}
                           className="shrink-0 opacity-60 transition-transform group-hover:translate-x-0.5"
                         />
                       )}
-                      <kbd
-                        className={cn(
-                          "rounded-lg border-2 px-1.5 py-0.5 text-[10px] font-extrabold",
-                          active
-                            ? "border-white/25 text-white/80"
-                            : "border-sidebar-foreground/15 text-sidebar-foreground/35",
-                        )}
-                      >
-                        {item.shortcut}
-                      </kbd>
                     </Link>
                   );
                 })}
               </div>
             </div>
           ))}
-
-          <div className="px-3 pt-1">
-            <p className="flex items-center gap-1.5 text-[11px] font-medium text-sidebar-foreground/45">
-              <Command size={12} /> K — jump to any screen
-            </p>
-          </div>
         </nav>
-
-        <div className="p-4">
-          <div className="rounded-xl border-2 border-emerald-400/20 bg-emerald-400/10 p-3">
-            <p className="flex items-center gap-1.5 text-xs font-bold text-emerald-300">
-              <WifiOff size={14} /> 100% Offline
-            </p>
-            <p className="mt-1 text-[11px] leading-snug text-sidebar-foreground/60">
-              All data stays on this computer. No internet needed.
-            </p>
-          </div>
-        </div>
       </aside>
     </>
   );

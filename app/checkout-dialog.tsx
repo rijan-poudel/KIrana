@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Button04 } from "@/components/button-04";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { FormField, parseInputNumber, parseOptionalNumber } from "@/components/form-field";
 import type { CheckoutResult, CustomerOption, PriceMode } from "@/lib/types";
 import { formatNPR, formatQuantity, round2 } from "@/lib/format";
+import { NprFlow } from "@/components/number-flow";
 import { checkout } from "@/actions/shop-actions";
 import Receipt from "./receipt";
 import CustomerPicker from "./customer-picker";
@@ -343,59 +345,47 @@ export default function CheckoutDialog({
                 <span className="text-sm font-semibold opacity-80">
                   {discountAmount > 0 ? "With discount" : "Bill total"}
                 </span>
-                <span className="font-heading text-3xl font-bold tracking-tight">{formatNPR(discountedTotal)}</span>
+                <NprFlow value={discountedTotal} className="font-heading text-3xl font-bold tracking-tight" willChange />
               </div>
             </div>
 
             <div className="mt-4">
               <FormField label="Discount (bhaansi)">
                 <div className="grid grid-cols-3 gap-2">
-                  <Button
+                  <Button04
                     type="button"
-                    variant={discountType === "none" ? "secondary" : "outline"}
-                    size="lg"
                     aria-pressed={discountType === "none"}
                     onClick={() => {
                       setDiscountType("none");
                       setDiscountText("");
                       setErrors((prev) => ({ ...prev, discount: "" }));
                     }}
-                    className="h-11 flex-col gap-0 text-sm font-bold"
+                    className="h-11 rounded-lg text-sm font-extrabold [--btn-radius:8px]"
                   >
                     None
-                  </Button>
-                  <Button
+                  </Button04>
+                  <Button04
                     type="button"
-                    variant={discountType === "flat" ? "default" : "outline"}
-                    size="lg"
                     aria-pressed={discountType === "flat"}
                     onClick={() => {
                       setDiscountType("flat");
                       setErrors((prev) => ({ ...prev, discount: "" }));
                     }}
-                    className={cn(
-                      "h-11 flex-col gap-0 text-sm font-bold",
-                      discountType === "flat" && "border-primary text-primary-foreground",
-                    )}
+                    className="h-11 rounded-lg text-sm font-extrabold [--btn-radius:8px]"
                   >
                     <IndianRupee size={15} /> Rs. off
-                  </Button>
-                  <Button
+                  </Button04>
+                  <Button04
                     type="button"
-                    variant={discountType === "percent" ? "default" : "outline"}
-                    size="lg"
                     aria-pressed={discountType === "percent"}
                     onClick={() => {
                       setDiscountType("percent");
                       setErrors((prev) => ({ ...prev, discount: "" }));
                     }}
-                    className={cn(
-                      "h-11 flex-col gap-0 text-sm font-bold",
-                      discountType === "percent" && "border-primary text-primary-foreground",
-                    )}
+                    className="h-11 rounded-lg text-sm font-extrabold [--btn-radius:8px]"
                   >
                     <BadgePercent size={15} /> % off
-                  </Button>
+                  </Button04>
                 </div>
 
                 {discountType !== "none" && (
@@ -554,27 +544,23 @@ export default function CheckoutDialog({
               <div className="mt-4 rounded-xl border border-red-200 bg-red-50/50 p-3">
                 <FormField label={`Khata customer (${formatNPR(dueAmount)} on credit)`}>
                   <div className="grid grid-cols-2 gap-2">
-                    <Button
+                    <Button04
                       type="button"
-                      variant={customerChoice === "existing" ? "default" : "outline"}
-                      size="lg"
                       disabled={customers.length === 0}
                       aria-pressed={customerChoice === "existing"}
                       onClick={() => setCustomerChoice("existing")}
-                      className="h-11 text-sm font-bold"
+                      className="h-11 rounded-lg text-sm font-extrabold [--btn-radius:8px]"
                     >
                       Existing customer
-                    </Button>
-                    <Button
+                    </Button04>
+                    <Button04
                       type="button"
-                      variant={customerChoice === "new" ? "default" : "outline"}
-                      size="lg"
                       aria-pressed={customerChoice === "new"}
                       onClick={() => setCustomerChoice("new")}
-                      className="h-11 text-sm font-bold"
+                      className="h-11 rounded-lg text-sm font-extrabold [--btn-radius:8px]"
                     >
                       <UserPlus size={15} /> New customer
-                    </Button>
+                    </Button04>
                   </div>
                 </FormField>
 

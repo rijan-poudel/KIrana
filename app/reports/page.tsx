@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-header";
 import { autoBackupIfNeeded, listBackups } from "@/lib/backup";
 import { formatNPR, formatPercentage, formatQuantity, round2 } from "@/lib/format";
+import { CountUpNpr } from "@/components/number-flow";
 import { startOfDay, startOfToday, toDateKey } from "@/lib/utils";
 import BackupPanel from "./backup-panel";
 import DateNav from "./date-nav";
@@ -262,7 +263,9 @@ export default async function ReportsPage({
                 {m.icon}
               </span>
             </div>
-            <p className={`mt-2 text-2xl font-bold ${m.valueClass}`}>{formatNPR(m.value)}</p>
+            <p className={`mt-2 text-2xl font-bold ${m.valueClass}`}>
+              <CountUpNpr value={m.value} />
+            </p>
             <p className="mt-1 text-xs text-muted-foreground">{m.sub}</p>
           </div>
         ))}
@@ -274,8 +277,8 @@ export default async function ReportsPage({
             <h2 className="text-lg font-bold text-foreground">Transactions of the day</h2>
             <p className="text-xs text-muted-foreground">
               {rows.length} record{rows.length === 1 ? "" : "s"} • sales worth {formatNPR(salesTotal)}
-              {discountsGiven > 0 ? ` • ${formatNPR(discountsGiven)} bhaansi given` : ""} • use the ⋯ menu to print a
-              receipt again or void a wrong bill.
+              {discountsGiven > 0 ? ` • ${formatNPR(discountsGiven)} bhaansi given` : ""} • use the ⋯ menu to edit a
+              bill&apos;s lines, print a receipt again, or void a wrong bill.
             </p>
           </div>
         </div>
@@ -288,11 +291,15 @@ export default async function ReportsPage({
           <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-lg border border-border px-3 py-2.5">
               <p className="text-xs text-muted-foreground">Outstanding khata</p>
-              <p className="mt-0.5 text-lg font-bold text-red-600">{formatNPR(outstandingTotal)}</p>
+              <p className="mt-0.5 text-lg font-bold text-red-600">
+                <CountUpNpr value={outstandingTotal} />
+              </p>
             </div>
             <div className="rounded-lg border border-border px-3 py-2.5">
               <p className="text-xs text-muted-foreground">Stock value</p>
-              <p className="mt-0.5 text-lg font-bold">{formatNPR(stockValue)}</p>
+              <p className="mt-0.5 text-lg font-bold">
+                <CountUpNpr value={stockValue} />
+              </p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">retail • cost {formatNPR(stockValueCost)}</p>
             </div>
           </div>

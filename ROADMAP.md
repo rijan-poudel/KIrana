@@ -67,8 +67,15 @@ verified; ☐ items are next, roughly in priority order within each phase.
    the counter pin. (Also fixed a latent bug: a server-action revalidation
    rebuilt the `customers` array mid-checkout and silently wiped a completed
    receipt — the dialog now only resets on a closed→open transition.)
-6. ☐ **Edit a saved bill's lines** (beyond void + re-entry) — fix a wrong
-   quantity/price without deleting the record.
+6. ✅ **Edit a saved bill's lines** (beyond void + re-entry) — fix a wrong
+   quantity/price without deleting the record. The edit dialog restores each
+   line from what was *actually* charged — the billed rate per unit (not
+   today's shelf price) and any per-line bhaansi embedded in the saved subtotal —
+   and makes both editable in-sheet with a one-tap "use shelf price" reset. The
+   whole bill (lines, per-line disc, bill bhaansi, customer) is rewritten in
+   place under the same receipt number, reversing the original StockMove/SALE
+   rows and applying the new deltas atomically, so stock, khata, and the
+   reports ledger always agree with the corrected total.
 7. ☐ **Day summary print** — print the day's totals (cash/udharo/payments) for
    the drawer reconciliation file.
 

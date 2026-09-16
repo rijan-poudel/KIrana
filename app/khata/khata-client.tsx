@@ -38,6 +38,7 @@ import { Input } from "@/components/ui/input";
 import { FormField, parseInputNumber } from "@/components/form-field";
 import type { CustomerOption, HistoryEntry } from "@/lib/types";
 import { formatDateTime, formatNPR, formatQuantity, round2 } from "@/lib/format";
+import { CountUpNpr } from "@/components/number-flow";
 import { createCustomer, deleteCustomer, getCustomerHistory, recordPayment, setCustomerFavorite, updateCustomer } from "@/actions/shop-actions";
 import { PageHeader } from "@/components/page-header";
 
@@ -91,7 +92,7 @@ export default function KhataClient({ customers }: { customers: CustomerOption[]
         subtitle={`${customers.length} customers • ${withDues} with outstanding credit`}
         icon={<BookOpen size={22} />}
         actions={
-          <Button size="lg" onClick={() => setFormTarget({ mode: "new" })}>
+          <Button onClick={() => setFormTarget({ mode: "new" })}>
             <UserPlus /> Add Customer
           </Button>
         }
@@ -104,7 +105,7 @@ export default function KhataClient({ customers }: { customers: CustomerOption[]
           </span>
           <div>
             <p className="text-sm font-semibold text-muted-foreground">Total outstanding udharo</p>
-            <p className="text-2xl font-bold text-red-600">{formatNPR(totalOutstanding)}</p>
+            <CountUpNpr value={totalOutstanding} className="text-2xl font-bold text-red-600" />
           </div>
         </div>
       </div>
@@ -175,10 +176,10 @@ export default function KhataClient({ customers }: { customers: CustomerOption[]
                 </div>
               </div>
               <div className="mt-3 flex gap-2 pt-1">
-                <Button variant="outline" className="h-11 flex-1" onClick={() => setHistoryFor(customer)}>
+                <Button variant="outline" className="flex-1" onClick={() => setHistoryFor(customer)}>
                   <History /> History
                 </Button>
-                <Button className="h-11 flex-1" onClick={() => setPaymentFor(customer)}>
+                <Button className="flex-1" onClick={() => setPaymentFor(customer)}>
                   <Wallet /> Record Payment
                 </Button>
               </div>

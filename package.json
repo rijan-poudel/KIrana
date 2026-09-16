@@ -10,7 +10,6 @@
     "start": "next start",
     "start:phone": "node scripts/phone.mjs --prod",
     "build": "next build",
-    "start": "next start",
     "postinstall": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "node prisma/seed.js",
@@ -21,6 +20,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
+    "@number-flow/react": "^0.6.2",
     "@prisma/client": "^6.16.0",
     "@types/qrcode": "^1.5.6",
     "class-variance-authority": "^0.7.1",

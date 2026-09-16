@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Button04 } from "@/components/button-04";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -170,13 +171,13 @@ export default function InventoryClient({
         icon={<PackagePlus size={22} />}
         actions={
           <>
-            <Button size="lg" variant="outline" onClick={() => setReceiveOpen(true)}>
+            <Button variant="outline" onClick={() => setReceiveOpen(true)}>
               <PackagePlus /> Receive stock
             </Button>
-            <Button size="lg" variant="outline" onClick={() => setPrintLabelsOpen(true)}>
+            <Button variant="outline" onClick={() => setPrintLabelsOpen(true)}>
               <Printer /> Print labels
             </Button>
-            <Button size="lg" onClick={() => setFormTarget("new")}>
+            <Button onClick={() => setFormTarget("new")}>
               <Plus /> Add product
             </Button>
           </>
@@ -208,20 +209,15 @@ export default function InventoryClient({
             { value: "low", label: "Low" },
             { value: "out", label: "Out" },
           ] as const).map((opt) => (
-            <Button
+            <Button04
               key={opt.value}
               type="button"
-              size="sm"
-              variant={stockFilter === opt.value ? "default" : "ghost"}
               aria-pressed={stockFilter === opt.value}
               onClick={() => setStockFilter(opt.value)}
-              className={cn(
-                "text-xs font-bold",
-                stockFilter === opt.value ? "" : "text-muted-foreground",
-              )}
+              className="h-8 rounded-md px-2.5 py-0 text-xs font-extrabold [--btn-radius:8px]"
             >
               {opt.label}
-            </Button>
+            </Button04>
           ))}
         </div>
       </div>
@@ -258,15 +254,15 @@ export default function InventoryClient({
                 </span>
               </div>
               <div className="mt-3 flex items-center gap-1.5">
-                <Button variant="outline" size="sm" className="h-8 flex-1" onClick={() => setStockTarget(p)}>
+                <Button variant="outline" className="flex-1" onClick={() => setStockTarget(p)}>
                   <PackagePlus /> Stock
                 </Button>
-                <Button variant="outline" size="icon-sm" aria-label={`Edit ${p.name}`} onClick={() => setFormTarget(p)}>
+                <Button variant="outline" size="icon" aria-label={`Edit ${p.name}`} onClick={() => setFormTarget(p)}>
                   <Pencil />
                 </Button>
                 <Button
                   variant="outline"
-                  size="icon-sm"
+                  size="icon"
                   aria-label={`Delete ${p.name}`}
                   className="hover:border-red-300 hover:text-red-600"
                   onClick={() => setDeleteTarget(p)}
@@ -704,21 +700,16 @@ function ProductFormDialog({ product, onClose }: { product: ProductCardData | nu
                     { value: "BOTH", label: "Both" },
                     { value: "WHOLESALE", label: "Wholesale only" },
                   ] as const).map((opt) => (
-                    <button
+                    <Button04
                       key={opt.value}
                       type="button"
                       role="radio"
                       aria-checked={sellAs === opt.value}
                       onClick={() => setSellAs(opt.value)}
-                      className={cn(
-                        "flex-1 rounded-md px-2 py-2 text-sm font-bold transition-colors",
-                        sellAs === opt.value
-                          ? "bg-primary text-primary-foreground shadow-sm shadow-primary/25"
-                          : "text-muted-foreground hover:text-foreground",
-                      )}
+                      className="h-9 flex-1 rounded-md px-2 py-0 text-sm font-extrabold [--btn-radius:8px]"
                     >
                       {opt.label}
-                    </button>
+                    </Button04>
                   ))}
                 </div>
               </FormField>

@@ -7,6 +7,7 @@
 @theme {
   --font-sans: var(--font-nunito-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-heading: var(--font-nunito), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --ease-out-quart: cubic-bezier(0.165, 0.84, 0.44, 1);
 }
 
 @theme inline {
@@ -206,4 +207,135 @@
   color: #777777;
   background: #77777715;
   border-color: #77777740;
+}
+
+@layer components {
+  /* ── Button 04 — hover color-fill reveal + text slide ──────────────────
+     ::before is the dark base, ::after the accent fill that slides up from
+     the bottom while the base shrinks towards its bottom edge. The label is
+     duplicated 2em above via text-shadow and slides down into view.
+     Colors are custom-property driven so any element can override them
+     (e.g. a red alert chip via [--btn-fill:var(--color-destructive)]).    */
+  .button-04 {
+    --btn-base: var(--color-night-ink);
+    --btn-fill: var(--color-eager-green);
+    --btn-radius: 6px;
+
+    position: relative;
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 28px;
+    overflow: hidden;
+    border: none;
+    border-radius: 4px;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+    color: #ffffff;
+    background: transparent;
+    text-decoration: none;
+    cursor: pointer;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .button-04::before,
+  .button-04::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--btn-radius);
+    pointer-events: none;
+  }
+
+  .button-04::before {
+    background-color: var(--btn-base);
+    transform-origin: 50% 90%;
+    transition:
+      transform 0.5s var(--ease-out-quart),
+      background-color 0.5s var(--ease-out-quart);
+    z-index: 1;
+  }
+
+  .button-04::after {
+    background-color: var(--btn-fill);
+    transition:
+      transform 0.5s var(--ease-out-quart),
+      background-color 0.5s var(--ease-out-quart);
+    z-index: 2;
+    transform: translateY(100%);
+  }
+
+  .button-04:hover::before {
+    scale: 0.9;
+  }
+
+  .button-04:hover::after {
+    transform: translateY(0);
+  }
+
+  .button-04:active {
+    scale: 0.99;
+  }
+
+  .button-04:disabled {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  .button-04:focus-visible {
+    outline: 3px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+
+  /* Selected/active state — the base picks up the accent fill. */
+  .button-04[aria-pressed="true"],
+  .button-04[aria-current="page"],
+  .button-04[aria-checked="true"] {
+    --btn-base: var(--btn-fill);
+  }
+
+  /* Solid "ink" variant (Wholesale identity) — stays dark even when active. */
+  .button-04--ink {
+    --btn-base: var(--color-night-ink);
+    --btn-fill: var(--color-night-ink);
+  }
+
+  .button-04 .span-wrapper {
+    position: relative;
+    z-index: 4;
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .button-04 .span-text {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45em;
+    text-shadow: 0 -2em 0 currentColor;
+    transition: transform 0.3s var(--ease-out-quart);
+  }
+
+  .button-04:hover .span-text {
+    transform: translateY(2em);
+  }
+
+  .button-04 .span-text svg {
+    vertical-align: -0.125em;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .button-04::before,
+    .button-04::after,
+    .button-04 .span-text {
+      transition-duration: 0.01ms;
+    }
+  }
 }

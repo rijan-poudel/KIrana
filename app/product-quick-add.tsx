@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, CheckCircle2, ChevronLeft, Loader2, ScanBarcode } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Button04 } from "@/components/button-04";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -489,22 +490,17 @@ function DetailsStep({
             { value: "BOTH", label: "Both", short: "Both" },
             { value: "WHOLESALE", label: "Wholesale only", short: "Wholesale" },
           ] as const).map((opt) => (
-            <button
+            <Button04
               key={opt.value}
               type="button"
               role="radio"
               aria-checked={sellAs === opt.value}
               onClick={() => setSellAs(opt.value)}
-              className={cn(
-                "flex-1 rounded-md px-2 py-2 text-sm font-bold transition-colors",
-                sellAs === opt.value
-                  ? "bg-primary text-primary-foreground shadow-sm shadow-primary/25"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
+              className="flex-1 rounded-md px-2 py-0 text-sm font-extrabold [--btn-radius:8px] h-9"
             >
               <span className="hidden sm:inline">{opt.label}</span>
               <span className="sm:hidden">{opt.short}</span>
-            </button>
+            </Button04>
           ))}
         </div>
       </FormField>
