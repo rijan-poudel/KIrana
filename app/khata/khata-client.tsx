@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   BookOpen,
+  Copy,
   History,
   Loader2,
   MapPin,
+  MessageCircle,
   MoreVertical,
   Pencil,
   Phone,
@@ -40,6 +42,8 @@ import type { CustomerOption, HistoryEntry } from "@/lib/types";
 import { formatDateTime, formatNPR, formatQuantity, round2 } from "@/lib/format";
 import { CountUpNpr } from "@/components/number-flow";
 import { createCustomer, deleteCustomer, getCustomerHistory, recordPayment, setCustomerFavorite, updateCustomer } from "@/actions/shop-actions";
+import { buildReminderText, buildStatementText, whatsappLink } from "@/lib/statement";
+import StatementPrint from "./statement-print";
 import { PageHeader } from "@/components/page-header";
 
 export default function KhataClient({ customers }: { customers: CustomerOption[] }) {
@@ -161,6 +165,20 @@ export default function KhataClient({ customers }: { customers: CustomerOption[]
                       }
                     />
                     <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        disabled={!customer.phone}
+                        onClick={() => {
+                          const link = whatsappLink(customer.phone, buildReminderText(customer));
+                          if (!link) {
+                            toast.error(`${customer.name} has no phone number — edit the customer to add one.`);
+                            return;
+                          }
+                          window.open(link, "_blank", "noopener");
+                        }}
+                      >
+                        <MessageCircle />
+                        {customer.phone ? "Send payment reminder" : "Payment reminder (no phone)"}
+                      </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => toggleFavorite(customer)}>
                         <Star className={customer.isFavorite ? "fill-amber-400 text-amber-500" : ""} />
                         {customer.isFavorite ? "Remove from regulars" : "Mark as regular"}
@@ -450,8 +468,47 @@ function HistoryDialog({ customer, onClose }: { customer: CustomerOption; onClos
             })}
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" className="w-full" onClick={onClose}>
+        <DialogFooter className="flex-row flex-wrap gap-2">
+          {entries !== null && entries.length > 0 && (
+            <>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={async () => {
+                  const text = buildStatementText(customer, entries);
+                  try {
+                    await navigator.clipboard.writeText(text);
+                    toast.success("Statement copied — paste it in WhatsApp, SMS or Viber.");
+                  } catch {
+                    toast.error("Could not copy on this browser. Select and copy manually.");
+                  }
+                }}
+              >
+                <Copy /> Copy statement
+              </Button>
+              {whatsappLink(customer.phone, buildStatementText(customer, entries)) ? (
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  render={
+                    <a
+                      href={whatsappLink(customer.phone, buildStatementText(customer, entries)) ?? "#"}
+                      target="_blank"
+                      rel="noreferrer"
+                    />
+                  }
+                >
+                  <MessageCircle /> WhatsApp
+                </Button>
+              ) : (
+                <Button variant="outline" className="flex-1" disabled title="Add a phone number to share on WhatsApp">
+                  <MessageCircle /> WhatsApp
+                </Button>
+              )}
+              <StatementPrint customer={customer} entries={entries} />
+            </>
+          )}
+          <Button variant="ghost" onClick={onClose}>
             Close
           </Button>
         </DialogFooter>

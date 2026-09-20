@@ -126,15 +126,29 @@ verified; ☐ items are next, roughly in priority order within each phase.
 
 12. ☐ Suppliers + purchase entries (supplier name/bill no. on PURCHASE moves,
     supplier payables = how much we owe).
-13. ☐ Reorder sheet — everything at/below low stock with a suggested order qty.
+13. ✅ **Reorder sheet** (shipped with the redesign, `/reorder`): everything at
+    or below low stock with suggested order quantities from sales velocity
+    (7-day lead time), search, print, and "order via delivery" actions.
 14. ☐ Barcode shelf-label printing (name + price, 50×25mm sheet).
 15. ☐ Fast stock-count screen (walk the shop, type counted qty per shelf).
-16. ☐ Optional expiry/batch tracking for perishables (milk, snacks).
+16. ✅ **Expiry tracking** (shipped with the redesign): products carry
+    manufacturing/expiry dates; the stock list shows Expired / x-days-left
+    badges next to stock so near-expiry stock is visible before it becomes a
+    loss. (Batch-level lot tracking stays out of scope for a single-shop
+    ledger until the shop actually needs it.)
 
 ## Phase 5 — Khata depth
 
-17. ☐ Customer statement: print/share full khata ledger (WhatsApp text export).
-18. ☐ Payment reminder helper (pre-filled WhatsApp/SMS message with balance).
+17. ✅ **Customer statement** (2026-09-20): in the customer's history dialog —
+    "Copy statement" (plain-text ledger for WhatsApp/SMS/Viber), "WhatsApp"
+    (wa.me deep link with the statement pre-filled; phone normalized to
+    +977, disabled with a hint when the customer has no phone), and "Print"
+    (A4 statement sheet: entry table with bill/paid/due, totals, customer +
+    shop signature lines) — all from the same statement builder
+    (`lib/statement.ts`).
+18. ✅ **Payment reminder** (2026-09-20): "Send payment reminder" on each
+    customer card's ⋯ menu — opens WhatsApp with a polite pre-filled balance
+    nudge (uses the same phone normalization; disabled when no phone).
 19. ☐ Advance (negative balance) flows polish — refund or adjust on next bill.
 
 ## Phase 6 — Deployment hardening (publish-ready)
