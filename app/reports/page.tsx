@@ -20,6 +20,7 @@ import { CountUpNpr } from "@/components/number-flow";
 import { startOfDay, startOfToday, toDateKey } from "@/lib/utils";
 import BackupPanel from "./backup-panel";
 import DateNav from "./date-nav";
+import DaySummaryPrint, { type DaySummaryData } from "./day-summary-print";
 import TransactionsTable from "./transactions-table";
 import type { ReportRowData, ProductCardData, CustomerOption } from "@/lib/types";
 
@@ -245,6 +246,21 @@ export default async function ReportsPage({
   const lanUrl = await getLanUrl();
   const qrDataUrl = await QRCode.toDataURL(lanUrl, { margin: 1, width: 180 });
 
+  const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const daySummary: DaySummaryData = {
+    dateKey,
+    weekday: WEEKDAYS[dayStart.getDay()],
+    bills: sales.length,
+    salesTotal,
+    discountsGiven,
+    cashFromSales,
+    creditPayments,
+    udharoAdded,
+    totalCash,
+    profitToday: sales.length > 0 && missingCostProducts === 0 ? profitToday : null,
+    outstandingTotal,
+  };
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">
       <PageHeader
@@ -281,6 +297,7 @@ export default async function ReportsPage({
               bill&apos;s lines, print a receipt again, or void a wrong bill.
             </p>
           </div>
+          <DaySummaryPrint summary={daySummary} rows={rows} />
         </div>
         <TransactionsTable rows={rows} products={productData} customers={customerData} />
       </section>

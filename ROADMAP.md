@@ -33,7 +33,7 @@ verified; ☐ items are next, roughly in priority order within each phase.
   totals (billed / paid / visits) in their history.
 - ✅ Stock screen: category + In stock/Low/Out filters.
 
-## Phase 2 — Daily-driver completeness (next)
+## Phase 2 — Daily-driver completeness (all ✅ — items 1–7 done)
 
 1. ✅ **Bill discounts** — flat (Rs.) or % bhaansi off a whole bill from the
    checkout dialog: tap Rs. off / % off, type the amount, optional note
@@ -76,8 +76,14 @@ verified; ☐ items are next, roughly in priority order within each phase.
    place under the same receipt number, reversing the original StockMove/SALE
    rows and applying the new deltas atomically, so stock, khata, and the
    reports ledger always agree with the corrected total.
-7. ☐ **Day summary print** — print the day's totals (cash/udharo/payments) for
-   the drawer reconciliation file.
+7. ✅ **Day summary print** — "Print day summary" on Reports prints an A4
+   closing sheet for the drawer reconciliation file: the day's totals (cash
+   from sales, credit payments, total cash in hand, udharo added, bhaansi
+   given, khata outstanding) plus every transaction of the selected day, with
+   count-the-drawer / difference / signature lines. The sheet is portalled to
+   <body> and everything else is display:none while printing, so it prints as
+   exactly the summary (no app chrome, no stray pages) and never collides with
+   the receipt reprint flow.
 
 ## Phase 3 — Reports & records a real shop needs
 
