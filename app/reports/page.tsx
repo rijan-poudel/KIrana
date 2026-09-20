@@ -122,6 +122,16 @@ export default async function ReportsPage({
     }),
   ]);
 
+  // How old is the newest backup? Drives the age badge in the backup section.
+  const newestBackup = backups[0] ?? null;
+  const backupAgeHours = newestBackup ? (Date.now() - new Date(newestBackup.createdAt).getTime()) / 3600000 : null;
+  function backupAgeLabel(): string {
+    if (backupAgeHours === null) return "No backup yet";
+    if (backupAgeHours < 1) return "Last backup: just now";
+    if (backupAgeHours < 26) return `Last backup: ${Math.round(backupAgeHours)}h ago`;
+    return `Last backup: ${Math.round(backupAgeHours / 24)}d ago`;
+  }
+
   const productData: ProductCardData[] = products.map((p) => ({
     id: p.id,
     name: p.name,
@@ -653,7 +663,16 @@ export default async function ReportsPage({
       </section>
 
       <section className="card mt-6 p-5">
-        <h2 className="text-lg font-bold text-foreground">Database backup</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-bold text-foreground">Database backup</h2>
+          <Badge
+            variant={
+              backupAgeHours === null ? "destructive" : backupAgeHours < 26 ? "success" : "warning"
+            }
+          >
+            {backupAgeLabel()}
+          </Badge>
+        </div>
         <p className="mt-1 text-sm text-muted-foreground">
           {autoBackup
             ? "An automatic safety copy was saved just now when you opened this page. "
