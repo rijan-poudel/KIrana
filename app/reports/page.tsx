@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import os from "os";
 import QRCode from "qrcode";
 import type { ReactNode } from "react";
+import { Download } from "lucide-react";
 import {
   BadgePercent,
   Banknote,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import prisma from "@/lib/prisma";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { autoBackupIfNeeded, listBackups } from "@/lib/backup";
 import { formatNPR, formatPercentage, formatQuantity, round2 } from "@/lib/format";
@@ -310,6 +312,11 @@ export default async function ReportsPage({
     outstandingTotal,
   };
 
+  const exportFrom = view.mode === "range" ? view.fromKey : view.dateKey;
+  const exportTo = view.mode === "range" ? view.toKey : view.dateKey;
+  const csvHref = `/api/export?from=${exportFrom}&to=${exportTo}`;
+  const csvProductsHref = `${csvHref}&kind=products`;
+
   const metrics: {
     label: string;
     value: number;
@@ -549,7 +556,17 @@ export default async function ReportsPage({
               {isRange && rows.length > visibleRows.length ? ` Showing the newest ${RANGE_ROW_CAP} — the CSV export has all ${rows.length}.` : ""}
             </p>
           </div>
-          {isRange ? <RangeSummaryPrint summary={rangeSummary} /> : <DaySummaryPrint summary={daySummary} rows={visibleRows} />}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" render={<a href={csvHref} download />}>
+              <Download /> Transactions CSV
+            </Button>
+            {isRange && (
+              <Button variant="outline" render={<a href={csvProductsHref} download />}>
+                <Download /> Products CSV
+              </Button>
+            )}
+            {isRange ? <RangeSummaryPrint summary={rangeSummary} /> : <DaySummaryPrint summary={daySummary} rows={visibleRows} />}
+          </div>
         </div>
         <TransactionsTable rows={visibleRows} products={productData} customers={customerData} />
       </section>
