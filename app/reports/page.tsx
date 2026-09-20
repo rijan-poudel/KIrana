@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { headers } from "next/headers";
 import os from "os";
 import QRCode from "qrcode";
@@ -9,6 +10,7 @@ import {
   BarChart3,
   CircleDollarSign,
   HandCoins,
+  ReceiptText,
   TrendingUp,
   Wallet,
 } from "lucide-react";
@@ -114,7 +116,7 @@ export default async function ReportsPage({
     prisma.customer.findMany({ orderBy: [{ currentBalance: "desc" }, { name: "asc" }] }),
     // Vendor bills recorded in this window — the "how much did we buy" side.
     prisma.purchaseBill.aggregate({
-      _sum: { totalAmount: true },
+      _sum: { totalAmount: true, vatAmount: true },
       _count: { _all: true },
       where: { createdAt: { gte: rangeStart, lt: rangeEndExclusive } },
     }),
@@ -165,6 +167,7 @@ export default async function ReportsPage({
   const stockValue = round2(products.reduce((sum, p) => sum + p.stockQuantity * p.retailPrice, 0));
   const stockValueCost = round2(products.reduce((sum, p) => sum + p.stockQuantity * p.costPrice, 0));
   const purchasesTotal = round2(purchases._sum.totalAmount ?? 0);
+  const purchasesVat = round2(purchases._sum.vatAmount ?? 0);
   const purchasesCount = purchases._count._all;
 
   const rows: ReportRowData[] = [];
@@ -412,6 +415,30 @@ export default async function ReportsPage({
           </div>
         ))}
       </section>
+
+      {isRange && (
+        <section className="card mt-6 flex flex-wrap items-center justify-between gap-3 p-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
+              <ReceiptText size={18} />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                Purchases recorded in this range: {formatNPR(purchasesTotal)}
+                {purchasesVat > 0 ? <span className="font-normal text-muted-foreground"> (input VAT {formatNPR(purchasesVat)})</span> : null}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {purchasesCount > 0
+                  ? `${purchasesCount} vendor bill${purchasesCount === 1 ? "" : "s"} captured on the Bills screen.`
+                  : "No vendor bills captured in this range yet — scan them on the Bills screen."}
+              </p>
+            </div>
+          </div>
+          <Button variant="outline" render={<Link href="/bills" />}>
+            <ReceiptText /> Open Bills
+          </Button>
+        </section>
+      )}
 
       {isRange && dayRows.length > 0 && (
         <section className="card mt-6 overflow-hidden">
