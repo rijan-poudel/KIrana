@@ -239,6 +239,55 @@ export type BackupInfo = {
   createdAt: string;
 };
 
+/** A received (purchase) bill on the Bills screen. */
+export type BillData = {
+  id: string;
+  vendorName: string;
+  vendorPan: string | null;
+  billNumber: string;
+  billDateBs: string | null; // as printed on the bill (Bikram Sambat)
+  billDateAd: string | null; // ISO date when known
+  fiscalYear: string | null; // e.g. "2082/83"
+  taxableAmount: number;
+  vatAmount: number;
+  totalAmount: number;
+  isVatBill: boolean;
+  source: string; // QR | MANUAL
+  rawPayload: string | null;
+  hasPhoto: boolean;
+  note: string | null;
+  createdAt: string;
+};
+
+/** Create/edit input for a bill. Amounts come straight from the bill/QR. */
+export type BillInput = {
+  vendorName: string;
+  vendorPan?: string | null;
+  billNumber: string;
+  billDateBs?: string | null;
+  billDateAd?: string | null; // ISO date string
+  taxableAmount: number;
+  vatAmount: number;
+  totalAmount: number;
+  isVatBill: boolean;
+  note?: string | null;
+  /** Only on create from a QR scan — the verifiable original payload. */
+  rawPayload?: string | null;
+  source?: string;
+};
+
+/** Saving may be stopped by an existing record for the same vendor + bill no.
+ *  `match: "pan"` is the same physical bill (uniqueness-enforced, cannot be
+ *  overridden); `match: "name"` matched only the vendor name, so saving anyway
+ *  is allowed (the PAN was simply never captured). */
+export type SaveBillResult =
+  | { status: "saved"; id: string }
+  | {
+      status: "duplicate";
+      match: "pan" | "name";
+      existing: { id: string; vendorName: string; billNumber: string; createdAt: string };
+    };
+
 /** One line of a saved transaction, as re-printed on receipts and reports. */
 export type ReceiptLine = {
   name: string;

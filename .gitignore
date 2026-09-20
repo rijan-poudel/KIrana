@@ -28,3 +28,6 @@ yarn-error.log*
 
 # timestamped database backups
 /backups/*.db
+
+# bill photos (live data — records live in the db, photos are prunable extras)
+/data/

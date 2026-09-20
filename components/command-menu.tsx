@@ -8,6 +8,7 @@ import {
   BookOpen,
   Package,
   PackagePlus,
+  ReceiptText,
   Search,
   ShoppingCart,
   Store,
@@ -31,6 +32,7 @@ const GROUPS = [
       { id: "khata", href: "/khata", label: "Udharo Khata", hint: "Credit balances & payments", icon: BookOpen },
       { id: "delivery", href: "/delivery", label: "Deliveries", hint: "Wholesale dispatches", icon: Truck },
       { id: "reports", href: "/reports", label: "Reports", hint: "Day summary, backups & phone QR", icon: BarChart3 },
+      { id: "bills", href: "/bills", label: "Bills", hint: "Vendor bills, QR records & VAT", icon: ReceiptText },
     ],
   },
 ] as const;

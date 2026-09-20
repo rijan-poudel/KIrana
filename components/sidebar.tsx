@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Package,
   PackagePlus,
+  ReceiptText,
   ShoppingBasket,
   ShoppingCart,
   Truck,
@@ -34,6 +35,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { href: "/khata", label: "Udharo Khata", icon: BookOpen, shortcut: "3", exact: false },
       { href: "/delivery", label: "Deliveries", icon: Truck, shortcut: "4", exact: false },
       { href: "/reports", label: "Reports", icon: BarChart3, shortcut: "5", exact: false },
+      { href: "/bills", label: "Bills", icon: ReceiptText, shortcut: "7", exact: false },
     ],
   },
 ];

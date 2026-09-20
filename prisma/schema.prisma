@@ -130,3 +130,31 @@ model DeliveryItem {
   unitPrice     Float        // price at delivery time
   subtotal      Float
 }
+
+/// A bill the shop RECEIVES (purchases) — the permanent paper trail for the
+/// accountant and VAT filing. VAT bills carry the vendor PAN + bill number the
+/// CBMS system keys on. The QR payload is a few hundred bytes, so the record
+/// itself is tiny; photos are optional extras stored on disk, not here.
+model PurchaseBill {
+  id            String    @id @default(cuid())
+  vendorName    String
+  vendorPan     String? // 9-digit PAN of the seller, printed on the bill / in the QR
+  billNumber    String
+  billDateBs    String? // date exactly as printed on the bill, Bikram Sambat, e.g. "2082.05.12"
+  billDateAd    DateTime? // Gregorian date when known (printed on the bill or typed by hand)
+  fiscalYear    String? // derived from billDateBs, e.g. "2082/83" — how VAT filing is organized
+  taxableAmount Float     @default(0) // net taxable sales, before VAT
+  vatAmount     Float     @default(0) // 13% input VAT charged by the vendor
+  totalAmount   Float     @default(0) // what the bill says to pay
+  isVatBill     Boolean   @default(false) // false for plain kachcha bills with no VAT line
+  source        String    @default("QR") // QR | MANUAL
+  rawPayload    String? // the exact QR text — the verifiable original, kept forever
+  photoPath     String? // optional compressed photo on disk (data/bill-photos/), prunable
+  note          String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([vendorPan, billNumber]) // one record per physical bill; NULL PANs are exempt
+  @@index([createdAt])
+  @@index([isVatBill])
+}

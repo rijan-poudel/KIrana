@@ -23,7 +23,7 @@ npm run dev        # start the app → http://localhost:3000
 
 Daily start afterwards: just `npm run dev` and open http://localhost:3000.
 
-## The Five Screens
+## The Six Screens
 
 | Screen | Who / When | What it does |
 |---|---|---|
@@ -31,7 +31,31 @@ Daily start afterwards: just `npm run dev` and open http://localhost:3000.
 | **Stock** (`/inventory`) | Restocking time | Product list with live stock in base units plus pack conversions ("≈ 15 Cartons"). **Add Stock** (purchases), **Damage / Return / Correction**, and **Count** (set exact shelf stock) — every change lands in the **stock movements ledger** below. Products define sell units like Carton ×30 or gram ×0.001; per-product low-stock alerts. |
 | **Udharo Khata** (`/khata`) | Credit tracking | Every customer's live outstanding balance, purchase history timeline, and a **Record Payment** modal for when they stop by to settle. |
 | **Deliveries** (`/delivery`) | Dispatch days | Log goods leaving the shop (client, items summary, value) and move them through **PENDING → DELIVERED → SETTLED**. |
+| **Bills** (`/bills`) | Whenever a vendor's bill arrives | **Scan the QR printed on the bill** (camera, or a photo already taken, or paste the QR text) — the vendor PAN, bill number, date, taxable/VAT/total fill themselves in from the QR's own data (pure deterministic parsing, **no AI**), you confirm once, and the record is kept forever. **Input VAT** totals per fiscal year (2082/83…), search, CSV export for the accountant, duplicate-bill guard, optional compressed photos. See *Bills & VAT records* below. |
 | **Reports** (`/reports`) | End of day | Today's cash from sales, udharo added, credit payments received, total cash in hand, full transaction list, stock health — plus the **phone QR code** and one-click database backups. |
+
+## Bills & VAT records (why this stays small)
+
+Nepali VAT bills (and many plain kachcha bills) carry a QR code. The Bills
+screen decodes it three ways — live camera, a photo already taken, or pasted QR
+text — and reads the vendor PAN, bill number, date, taxable amount, VAT and
+total **straight from the QR's own data** (`lib/vat-qr.ts`). There is no AI and
+no network: the same QR always produces the same fields, everything it can't
+confidently read goes to the confirm form by hand, and payment QRs
+(Khalti/eSewa/Fonepay) are detected and rejected. Bikram Sambat dates are kept
+exactly as printed and the **fiscal year** (Shrawan–Ashadh, e.g. 2082/83) is
+derived for VAT filing; a built-in arithmetic check flags any bill whose VAT
+isn't ≈13% of its taxable amount before you save.
+
+**Storage:** the record itself is ~300 bytes — ten thousand bills fit in a few
+megabytes of `shop.db`, and that data is the permanent archive. Photos are the
+only space hog, so they are optional (kept per-bill if you scan from a photo),
+compressed on the phone to ~100 KB before upload, stored on disk (not in the
+database, so backups stay small), and **auto-pruned** on a retention setting
+(default: keep 1 year) while the records stay forever.
+
+**For the accountant:** one-click **CSV export** of any fiscal-year slice with
+fiscal year, BS/AD dates, vendor, PAN, bill number, taxable, VAT, total.
 
 ## Units: base units and packs
 
@@ -109,6 +133,7 @@ ledger, so Stock always reconciles. Recorded khata payments are stored as
 | `npm run db:seed` | Add the 20 staple starter products (skips if any exist) |
 | `npm run db:studio` | Browse raw data in Prisma Studio (http://localhost:5555) |
 | `node scripts/clean-test-data.js` | Wipe test transactions/customers, keep products |
+| `node scripts/test-vat-qr.ts` | Run the deterministic bill-QR parser tests (plain node) |
 
 ## Troubleshooting
 

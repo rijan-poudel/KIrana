@@ -84,7 +84,22 @@ verified; ☐ items are next, roughly in priority order within each phase.
 8. ☐ Date-range reports (this week / month / custom) + monthly closing summary.
 9. ☐ Sales-by-product & sales-by-category for a range (what actually sells).
 10. ☐ CSV export of any day/range (accountant/tax).
-11. ☐ Purchase report from stock-move notes (how much bought, from whom).
+11. ✅ **Vendor bill records — QR capture & VAT inbox** (2026-09-20): the new
+    `/bills` screen. Scan the QR printed on a vendor's VAT bill (camera /
+    photo / pasted text — native `BarcodeDetector` + html5-qrcode, no AI),
+    `lib/vat-qr.ts` reads seller PAN, bill number, BS date, taxable/VAT/total
+    deterministically from the payload (CBMS JSON, verification URLs, plain
+    `key: value` text; EMV payment QRs rejected), a confirm form shows the
+    pre-filled fields with a 13%-VAT arithmetic check, and the record is saved
+    with a duplicate guard on the CBMS identity (vendor PAN + bill number).
+    BS dates kept as printed, fiscal year derived (2082/83), input-VAT totals
+    per fiscal year, CSV export, manual entry for plain kachcha bills. The
+    storage answer: records are ~300 bytes and permanent; photos are optional,
+    client-compressed to ~100 KB WebP, stored on disk (`data/bill-photos/`,
+    served via `/api/bill-photo/[id]`), auto-pruned by a retention setting
+    (default keep 1 year) while records stay forever. Tests:
+    `node scripts/test-vat-qr.ts`.
+11b. ☐ Purchase report from stock-move notes (how much bought, from whom).
 
 ## Phase 4 — Stock depth
 
