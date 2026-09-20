@@ -85,11 +85,22 @@ verified; ☐ items are next, roughly in priority order within each phase.
    exactly the summary (no app chrome, no stray pages) and never collides with
    the receipt reprint flow.
 
-## Phase 3 — Reports & records a real shop needs
+## Phase 3 — Reports & records a real shop needs (items 8–11 done)
 
-8. ☐ Date-range reports (this week / month / custom) + monthly closing summary.
-9. ☐ Sales-by-product & sales-by-category for a range (what actually sells).
-10. ☐ CSV export of any day/range (accountant/tax).
+8. ✅ **Date-range reports + monthly closing** (2026-09-20): `/reports?from=&to=`
+    range mode — week / month / last-month / 30-days presets plus custom span
+    pickers; the six metrics computed across the range; a Day-by-day closing
+    table (per-day bills/sales/bhaansi/cash/udharo/credit-payments + totals,
+    days with activity, clickable to that day's report); "Print range summary"
+    A4 sheet (day-by-day + totals + Prepared by/Checked by lines) sharing the
+    portalled `#print-sheet` print mechanism with the day summary.
+9. ✅ **"What sold"** (2026-09-20): per-product qty/revenue/cogs across the
+    range sorted by revenue, category sub-total chips, per-product gross profit
+    when cost prices are set; top 25 on screen, full set in the Products CSV.
+10. ✅ **CSV export** (2026-09-20): `GET /api/export?from=&to=` streams the full
+    range (no screen cap) — Transactions CSV (gross/discount+note/net/paid/due/
+    status + PAYMENT rows) and `&kind=products` What-sold CSV; BOM + CRLF +
+    quoted cells so Excel opens it cleanly; buttons in the Reports header.
 11. ✅ **Vendor bill records — QR capture & VAT inbox** (2026-09-20): the new
     `/bills` screen. Scan the QR printed on a vendor's VAT bill (camera /
     photo / pasted text — native `BarcodeDetector` + html5-qrcode, no AI),
@@ -105,7 +116,11 @@ verified; ☐ items are next, roughly in priority order within each phase.
     served via `/api/bill-photo/[id]`), auto-pruned by a retention setting
     (default keep 1 year) while records stay forever. Tests:
     `node scripts/test-vat-qr.ts`.
-11b. ☐ Purchase report from stock-move notes (how much bought, from whom).
+11b. ✅ **Purchases in range** (2026-09-20): the range view totals vendor bills
+    captured in the span (amount, input VAT, count) with a link to `/bills`, and
+    the range print sheet gains a "Purchases recorded" totals line. (A fuller
+    purchase register from stock-move notes can build on the Bills data if the
+    shop needs supplier-level detail later.)
 
 ## Phase 4 — Stock depth
 
