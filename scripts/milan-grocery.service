@@ -1,0 +1,14 @@
+[Unit]
+Description=Milan Grocery shop app (Next.js production server)
+After=network.target
+
+[Service]
+WorkingDirectory=%h/Projects/Milan%20Grocery
+ExecStart=/usr/bin/env npx next start -p 3000 -H 0.0.0.0
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+# SQLite is a single file on disk; nothing else to configure.
+
+[Install]
+WantedBy=default.target

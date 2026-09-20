@@ -120,6 +120,19 @@ half-written. Purchases, damage, corrections and counts go through the same
 ledger, so Stock always reconciles. Recorded khata payments are stored as
 `PAYMENT` transactions so the day report totals are always auditable.
 
+## Run automatically at boot (shop PC setup)
+
+So the app is simply *always there* after a power cut, install it as a systemd
+user service (builds once, then starts on boot and restarts on crashes):
+
+```bash
+bash scripts/install-service.sh     # install + start now
+sudo loginctl enable-linger $USER   # optional: start even before anyone logs in
+```
+
+`bash scripts/install-service.sh --remove` undoes it. Logs: `journalctl --user -u milan-grocery`.
+For phone camera access alongside it, run `npm run start:phone` (HTTPS proxy on :3443).
+
 ## Scripts
 
 | Command | Purpose |

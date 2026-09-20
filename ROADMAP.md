@@ -139,8 +139,11 @@ verified; ☐ items are next, roughly in priority order within each phase.
 
 ## Phase 6 — Deployment hardening (publish-ready)
 
-20. ☐ **Auto-start on boot** — systemd user service (or PM2) running the
-    production build, so a power cut self-heals; README runbook.
+20. ◐ **Auto-start on boot** — ✅ `scripts/install-service.sh` installs a
+    systemd **user** unit (`scripts/milan-grocery.service`) that builds once,
+    starts the production server on boot, and restarts on crashes, with the
+    README runbook (2026-09-20). ☐ still to do on the actual shop PC: run the
+    script once + `sudo loginctl enable-linger $USER` (needs the owner's sudo).
 21. ◐ **Auto-backup** — ✅ automatic daily snapshot when Reports is opened,
     keeping the newest 30 files (2026-09-13). ☐ still missing: a visible
     "last backup: when" age badge and backups that survive the PC being off
