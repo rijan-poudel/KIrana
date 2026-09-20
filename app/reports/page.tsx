@@ -17,16 +17,24 @@ import { PageHeader } from "@/components/page-header";
 import { autoBackupIfNeeded, listBackups } from "@/lib/backup";
 import { formatNPR, formatPercentage, formatQuantity, round2 } from "@/lib/format";
 import { CountUpNpr } from "@/components/number-flow";
-import { startOfDay, startOfToday, toDateKey } from "@/lib/utils";
+import { describeRange, startOfDay, startOfToday, toDateKey } from "@/lib/utils";
 import BackupPanel from "./backup-panel";
-import DateNav from "./date-nav";
+import DateNav, { type ReportsView } from "./date-nav";
 import DaySummaryPrint, { type DaySummaryData } from "./day-summary-print";
+import RangeSummaryPrint, { type RangeSummaryData } from "./range-summary-print";
 import TransactionsTable from "./transactions-table";
-import type { ReportRowData, ProductCardData, CustomerOption } from "@/lib/types";
+import type { RangeDayRow, ReportRowData, ProductCardData, CustomerOption } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Reports" };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+/** Range views list the newest 400 records — older ones stay in the CSV export. */
+const RANGE_ROW_CAP = 400;
+/** The day-by-day breakdown table shows at most this many days. */
+const BREAKDOWN_DAY_CAP = 100;
 
 /** The LAN address phones on the same WiFi should use — not localhost. */
 async function getLanUrl(): Promise<string> {
@@ -47,29 +55,39 @@ async function getLanUrl(): Promise<string> {
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string }>;
+  searchParams: Promise<{ date?: string; from?: string; to?: string }>;
 }) {
   const params = await searchParams;
-  const dateKey = params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : toDateKey(startOfToday());
-  const dayStart = startOfDay(dateKey);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setDate(dayEnd.getDate() + 1);
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  const view: ReportsView =
+    params.from && params.to && dateRe.test(params.from) && dateRe.test(params.to)
+      ? { mode: "range", fromKey: params.from <= params.to ? params.from : params.to, toKey: params.from <= params.to ? params.to : params.from }
+      : { mode: "day", dateKey: params.date && dateRe.test(params.date) ? params.date : toDateKey(startOfToday()) };
+
+  const rangeStart = view.mode === "range" ? startOfDay(view.fromKey) : startOfDay(view.dateKey);
+  const rangeEndExclusive = new Date(rangeStart);
+  if (view.mode === "range") {
+    rangeEndExclusive.setTime(startOfDay(view.toKey).getTime() + DAY_MS);
+  } else {
+    rangeEndExclusive.setTime(rangeStart.getTime() + DAY_MS);
+  }
+
   // The shopkeeper opens Reports at closing time — the natural moment for the
   // daily safety snapshot. Refresh the list afterwards so it shows the new file.
   const autoBackup = await autoBackupIfNeeded();
   const backups = listBackups();
 
-  const [sales, payments, outstanding, products, allCustomers] = await Promise.all([
+  const [sales, payments, outstanding, products, allCustomers, purchases] = await Promise.all([
     prisma.transaction.findMany({
-      where: { createdAt: { gte: dayStart, lt: dayEnd }, type: { in: ["RETAIL", "WHOLESALE"] } },
+      where: { createdAt: { gte: rangeStart, lt: rangeEndExclusive }, type: { in: ["RETAIL", "WHOLESALE"] } },
       orderBy: { createdAt: "desc" },
       include: {
         customer: { select: { name: true } },
-        items: { include: { product: { select: { name: true, baseUnit: true, costPrice: true } } } },
+        items: { include: { product: { select: { name: true, baseUnit: true, costPrice: true, category: true } } } },
       },
     }),
     prisma.transaction.findMany({
-      where: { createdAt: { gte: dayStart, lt: dayEnd }, type: "PAYMENT" },
+      where: { createdAt: { gte: rangeStart, lt: rangeEndExclusive }, type: "PAYMENT" },
       orderBy: { createdAt: "desc" },
       include: { customer: { select: { name: true } } },
     }),
@@ -92,6 +110,12 @@ export default async function ReportsPage({
       orderBy: { stockQuantity: "asc" },
     }),
     prisma.customer.findMany({ orderBy: [{ currentBalance: "desc" }, { name: "asc" }] }),
+    // Vendor bills recorded in this window — the "how much did we buy" side.
+    prisma.purchaseBill.aggregate({
+      _sum: { totalAmount: true },
+      _count: { _all: true },
+      where: { createdAt: { gte: rangeStart, lt: rangeEndExclusive } },
+    }),
   ]);
 
   const productData: ProductCardData[] = products.map((p) => ({
@@ -129,8 +153,8 @@ export default async function ReportsPage({
   const cogs = round2(
     sales.reduce((sum, t) => sum + t.items.reduce((lineSum, i) => lineSum + i.quantity * i.product.costPrice, 0), 0),
   );
-  const profitToday = round2(salesTotal - cogs);
-  const profitMargin = salesTotal > 0 ? formatPercentage(profitToday / salesTotal) : null;
+  const profit = round2(salesTotal - cogs);
+  const profitMargin = salesTotal > 0 ? formatPercentage(profit / salesTotal) : null;
   const missingCostProducts = new Set(
     sales.flatMap((t) => t.items.filter((i) => i.product.costPrice <= 0).map((i) => i.product.name)),
   ).size;
@@ -138,6 +162,8 @@ export default async function ReportsPage({
   const lowStock = products.filter((p) => p.stockQuantity <= p.lowStockAt);
   const stockValue = round2(products.reduce((sum, p) => sum + p.stockQuantity * p.retailPrice, 0));
   const stockValueCost = round2(products.reduce((sum, p) => sum + p.stockQuantity * p.costPrice, 0));
+  const purchasesTotal = round2(purchases._sum.totalAmount ?? 0);
+  const purchasesCount = purchases._count._all;
 
   const rows: ReportRowData[] = [];
   for (const t of sales) {
@@ -180,6 +206,76 @@ export default async function ReportsPage({
   }
   rows.sort((a, b) => (a.time < b.time ? 1 : -1));
 
+  const isRange = view.mode === "range";
+  // Day mode lists everything; range mode caps the on-screen table (the CSV
+  // export always carries the full range).
+  const visibleRows = isRange ? rows.slice(0, RANGE_ROW_CAP) : rows;
+
+  // Day-by-day breakdown for the range closing sheet.
+  const dayRows: RangeDayRow[] = [];
+  if (isRange) {
+    const byDay = new Map<string, { bills: number; sales: number; disc: number; cash: number; udharo: number }>();
+    for (const t of sales) {
+      const dayKey = toDateKey(t.createdAt);
+      const acc = byDay.get(dayKey) ?? { bills: 0, sales: 0, disc: 0, cash: 0, udharo: 0 };
+      acc.bills += 1;
+      acc.sales += t.totalAmount;
+      acc.disc += t.discountAmount;
+      acc.cash += t.paidAmount;
+      acc.udharo += Math.max(t.totalAmount - t.paidAmount, 0);
+      byDay.set(dayKey, acc);
+    }
+    const paymentByDay = new Map<string, number>();
+    for (const p of payments) {
+      const dayKey = toDateKey(p.createdAt);
+      paymentByDay.set(dayKey, (paymentByDay.get(dayKey) ?? 0) + p.totalAmount);
+    }
+    for (let time = rangeStart.getTime(); time < rangeEndExclusive.getTime() && dayRows.length < BREAKDOWN_DAY_CAP; time += DAY_MS) {
+      const dayKey = toDateKey(new Date(time));
+      const acc = byDay.get(dayKey);
+      const credit = paymentByDay.get(dayKey) ?? 0;
+      if (!acc && credit === 0) continue; // skip silent days in the breakdown
+      dayRows.push({
+        dateKey: dayKey,
+        bills: acc?.bills ?? 0,
+        salesTotal: round2(acc?.sales ?? 0),
+        discounts: round2(acc?.disc ?? 0),
+        cash: round2(acc?.cash ?? 0),
+        udharoAdded: round2(acc?.udharo ?? 0),
+        creditPayments: round2(credit),
+      });
+    }
+  }
+
+  const rangeSummary: RangeSummaryData = {
+    label: describeRange(view.mode === "range" ? view.fromKey : view.dateKey, view.mode === "range" ? view.toKey : view.dateKey),
+    bills: sales.length,
+    salesTotal,
+    discountsGiven,
+    cashFromSales,
+    creditPayments,
+    udharoAdded,
+    totalCash,
+    profitToday: sales.length > 0 && missingCostProducts === 0 ? profit : null,
+    purchasesTotal: purchasesCount > 0 ? purchasesTotal : null,
+    outstandingTotal,
+    days: dayRows,
+  };
+
+  const daySummary: DaySummaryData = {
+    dateKey: view.mode === "day" ? view.dateKey : view.fromKey,
+    weekday: WEEKDAYS[rangeStart.getDay()],
+    bills: sales.length,
+    salesTotal,
+    discountsGiven,
+    cashFromSales,
+    creditPayments,
+    udharoAdded,
+    totalCash,
+    profitToday: sales.length > 0 && missingCostProducts === 0 ? profit : null,
+    outstandingTotal,
+  };
+
   const metrics: {
     label: string;
     value: number;
@@ -197,11 +293,11 @@ export default async function ReportsPage({
       valueClass: "text-foreground",
     },
     {
-      label: "Profit Today",
-      value: profitToday,
+      label: isRange ? "Profit in Range" : "Profit Today",
+      value: profit,
       sub:
         missingCostProducts > 0
-          ? `set cost prices — ${missingCostProducts} product${missingCostProducts === 1 ? "" : "s"} sold today have none`
+          ? `set cost prices — ${missingCostProducts} product${missingCostProducts === 1 ? "" : "s"} sold have none`
           : profitMargin
             ? `≈ ${profitMargin} margin, after COGS`
             : "no sales to report",
@@ -212,7 +308,7 @@ export default async function ReportsPage({
     {
       label: "Udharo Added",
       value: udharoAdded,
-      sub: "credit given this day",
+      sub: isRange ? "credit given in range" : "credit given this day",
       icon: <HandCoins size={20} />,
       iconClass: "bg-amber-100 text-amber-700",
       valueClass: "text-amber-600",
@@ -228,7 +324,7 @@ export default async function ReportsPage({
     {
       label: "Discounts Given",
       value: discountsGiven,
-      sub: "bhaansi off this day",
+      sub: isRange ? "bhaansi off in range" : "bhaansi off this day",
       icon: <BadgePercent size={20} />,
       iconClass: "bg-rose-100 text-rose-600",
       valueClass: "text-rose-600",
@@ -236,7 +332,7 @@ export default async function ReportsPage({
     {
       label: "Total Cash in Hand",
       value: totalCash,
-      sub: "count this in the cash drawer",
+      sub: isRange ? "cash collected across the range" : "count this in the cash drawer",
       icon: <CircleDollarSign size={20} />,
       iconClass: "bg-primary/10 text-primary",
       valueClass: "text-primary",
@@ -246,28 +342,17 @@ export default async function ReportsPage({
   const lanUrl = await getLanUrl();
   const qrDataUrl = await QRCode.toDataURL(lanUrl, { margin: 1, width: 180 });
 
-  const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const daySummary: DaySummaryData = {
-    dateKey,
-    weekday: WEEKDAYS[dayStart.getDay()],
-    bills: sales.length,
-    salesTotal,
-    discountsGiven,
-    cashFromSales,
-    creditPayments,
-    udharoAdded,
-    totalCash,
-    profitToday: sales.length > 0 && missingCostProducts === 0 ? profitToday : null,
-    outstandingTotal,
-  };
-
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">
       <PageHeader
-        title="Reports"
-        subtitle="Day-by-day record of everything the shop did — match the cash numbers against the drawer."
+        title={isRange ? "Range Report" : "Reports"}
+        subtitle={
+          isRange
+            ? "Weeks, months or any custom span — totals, the day-by-day closing sheet, and CSV export."
+            : "Day-by-day record of everything the shop did — match the cash numbers against the drawer."
+        }
         icon={<BarChart3 size={22} />}
-        actions={<DateNav dateKey={dateKey} />}
+        actions={<DateNav view={view} />}
       />
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -287,19 +372,98 @@ export default async function ReportsPage({
         ))}
       </section>
 
+      {isRange && dayRows.length > 0 && (
+        <section className="card mt-6 overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-4">
+            <div>
+              <h2 className="text-lg font-bold text-foreground">Day-by-day</h2>
+              <p className="text-xs text-muted-foreground">
+                The monthly-closing breakdown — every day with activity in {rangeSummary.label}.
+              </p>
+            </div>
+            <RangeSummaryPrint summary={rangeSummary} />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm md:min-w-[640px]">
+              <thead>
+                <tr className="border-b border-border bg-muted/50 text-xs tracking-wide text-muted-foreground uppercase">
+                  <th className="px-4 py-2.5 font-semibold">Date</th>
+                  <th className="px-4 py-2.5 text-right font-semibold">Bills</th>
+                  <th className="px-4 py-2.5 text-right font-semibold">Sales</th>
+                  <th className="px-4 py-2.5 text-right font-semibold">Bhaansi</th>
+                  <th className="px-4 py-2.5 text-right font-semibold">Cash in</th>
+                  <th className="px-4 py-2.5 text-right font-semibold">Udharo added</th>
+                  <th className="px-4 py-2.5 text-right font-semibold">Credit payments</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dayRows.map((day) => (
+                  <tr key={day.dateKey} className="border-b border-border/40 last:border-0">
+                    <td className="px-4 py-2.5 whitespace-nowrap">
+                      <a
+                        href={`/reports?date=${day.dateKey}`}
+                        className="font-semibold text-foreground underline-offset-4 hover:underline"
+                      >
+                        {formatQuantity(Number(day.dateKey.slice(8, 10)))} {WEEKDAYS[new Date(day.dateKey + "T00:00:00").getDay()].slice(0, 3)}
+                      </a>
+                    </td>
+                    <td className="px-4 py-2.5 text-right">{day.bills}</td>
+                    <td className="px-4 py-2.5 text-right font-semibold whitespace-nowrap">{formatNPR(day.salesTotal)}</td>
+                    <td className="px-4 py-2.5 text-right whitespace-nowrap text-rose-600">
+                      {day.discounts > 0 ? formatNPR(day.discounts) : "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-semibold whitespace-nowrap">{formatNPR(day.cash)}</td>
+                    <td className="px-4 py-2.5 text-right whitespace-nowrap text-amber-600">
+                      {day.udharoAdded > 0 ? formatNPR(day.udharoAdded) : "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-right whitespace-nowrap text-emerald-700">
+                      {day.creditPayments > 0 ? formatNPR(day.creditPayments) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-border bg-muted/40 font-bold">
+                  <td className="px-4 py-2.5">Total</td>
+                  <td className="px-4 py-2.5 text-right">{sales.length}</td>
+                  <td className="px-4 py-2.5 text-right whitespace-nowrap">{formatNPR(salesTotal)}</td>
+                  <td className="px-4 py-2.5 text-right whitespace-nowrap text-rose-600">{formatNPR(discountsGiven)}</td>
+                  <td className="px-4 py-2.5 text-right whitespace-nowrap">{formatNPR(cashFromSales)}</td>
+                  <td className="px-4 py-2.5 text-right whitespace-nowrap text-amber-600">{formatNPR(udharoAdded)}</td>
+                  <td className="px-4 py-2.5 text-right whitespace-nowrap text-emerald-700">{formatNPR(creditPayments)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {isRange && dayRows.length === 0 && (
+        <section className="card mt-6 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-bold text-foreground">Day-by-day</h2>
+              <p className="text-xs text-muted-foreground">No transactions were recorded in {rangeSummary.label}.</p>
+            </div>
+            <RangeSummaryPrint summary={rangeSummary} />
+          </div>
+        </section>
+      )}
+
       <section className="card mt-6 overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-4">
           <div>
-            <h2 className="text-lg font-bold text-foreground">Transactions of the day</h2>
+            <h2 className="text-lg font-bold text-foreground">{isRange ? "Transactions in the range" : "Transactions of the day"}</h2>
             <p className="text-xs text-muted-foreground">
               {rows.length} record{rows.length === 1 ? "" : "s"} • sales worth {formatNPR(salesTotal)}
               {discountsGiven > 0 ? ` • ${formatNPR(discountsGiven)} bhaansi given` : ""} • use the ⋯ menu to edit a
               bill&apos;s lines, print a receipt again, or void a wrong bill.
+              {isRange && rows.length > visibleRows.length ? ` Showing the newest ${RANGE_ROW_CAP} — the CSV export has all ${rows.length}.` : ""}
             </p>
           </div>
-          <DaySummaryPrint summary={daySummary} rows={rows} />
+          {isRange ? <RangeSummaryPrint summary={rangeSummary} /> : <DaySummaryPrint summary={daySummary} rows={visibleRows} />}
         </div>
-        <TransactionsTable rows={rows} products={productData} customers={customerData} />
+        <TransactionsTable rows={visibleRows} products={productData} customers={customerData} />
       </section>
 
       <section className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">

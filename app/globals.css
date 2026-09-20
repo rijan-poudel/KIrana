@@ -150,19 +150,19 @@
     color: black;
     background: white;
   }
-  /* Day summary sheet (Reports): portalled to <body> while printing, marked
-     with a body class. Everything else is display:none (not just visibility)
-     so hidden app layout can't spill onto extra printed pages, and the sheet
-     flows normally if a long day spans several pages. Never coexists with
-     #receipt-print. */
-  body.print-day-summary > *:not(#day-summary-print) {
+  /* Report print sheets (day summary, range/monthly closing): portalled to
+     <body> while printing, marked with a body class. Everything else is
+     display:none (not just visibility) so hidden app layout can't spill onto
+     extra printed pages, and the sheet flows normally if a long report spans
+     several pages. Never coexists with #receipt-print. */
+  body.print-sheet > *:not(#print-sheet) {
     display: none !important;
   }
-  body.print-day-summary #day-summary-print,
-  body.print-day-summary #day-summary-print * {
+  body.print-sheet #print-sheet,
+  body.print-sheet #print-sheet * {
     visibility: visible !important;
   }
-  body.print-day-summary #day-summary-print {
+  body.print-sheet #print-sheet {
     display: block;
     padding: 10mm;
     color: black;

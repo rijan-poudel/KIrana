@@ -329,3 +329,14 @@ export type ReportRowData = {
   paidAmount: number;
   paymentStatus: string;
 };
+
+/** One day's totals inside a range report (weekly/monthly closing). */
+export type RangeDayRow = {
+  dateKey: string; // "2026-09-13"
+  bills: number;
+  salesTotal: number;
+  discounts: number;
+  cash: number; // paid at the counter that day
+  udharoAdded: number;
+  creditPayments: number;
+};

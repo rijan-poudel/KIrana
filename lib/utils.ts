@@ -36,3 +36,16 @@ export function errorMessage(error: unknown): string {
   if (typeof error === "string" && error) return error;
   return "Something went wrong. Please try again.";
 }
+
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/** Human label for a report range, e.g. "September 2026 (1–30)". Server-safe. */
+export function describeRange(fromKey: string, toKey: string): string {
+  const from = new Date(fromKey + "T00:00:00");
+  const to = new Date(toKey + "T00:00:00");
+  const sameMonth = from.getMonth() === to.getMonth() && from.getFullYear() === to.getFullYear();
+  if (sameMonth) {
+    return `${MONTH_NAMES[from.getMonth()]} ${from.getFullYear()} (${from.getDate()}–${to.getDate()})`;
+  }
+  return `${from.getDate()} ${MONTH_NAMES[from.getMonth()].slice(0, 3)} ${from.getFullYear()} – ${to.getDate()} ${MONTH_NAMES[to.getMonth()].slice(0, 3)} ${to.getFullYear()}`;
+}

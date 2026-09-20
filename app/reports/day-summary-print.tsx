@@ -38,7 +38,7 @@ export default function DaySummaryPrint({ summary, rows }: { summary: DaySummary
 
   useEffect(() => {
     if (!printing) return;
-    document.body.classList.add("print-day-summary");
+    document.body.classList.add("print-sheet");
     function finish() {
       setPrinting(false);
       if (cleanupTimer.current) {
@@ -54,7 +54,7 @@ export default function DaySummaryPrint({ summary, rows }: { summary: DaySummary
     const raf = requestAnimationFrame(() => window.print());
     return () => {
       cancelAnimationFrame(raf);
-      document.body.classList.remove("print-day-summary");
+      document.body.classList.remove("print-sheet");
       window.removeEventListener("afterprint", finish);
       if (cleanupTimer.current) clearTimeout(cleanupTimer.current);
     };
@@ -72,7 +72,7 @@ export default function DaySummaryPrint({ summary, rows }: { summary: DaySummary
 
       {printing &&
         createPortal(
-          <div id="day-summary-print">
+          <div id="print-sheet">
             <DaySummarySheet summary={summary} rows={rows} />
           </div>,
           document.body,
