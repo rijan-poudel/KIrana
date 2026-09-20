@@ -340,3 +340,13 @@ export type RangeDayRow = {
   udharoAdded: number;
   creditPayments: number;
 };
+
+/** One product's sales inside a range ("what actually sells"). */
+export type ProductSalesRow = {
+  productId: string;
+  name: string;
+  category: string;
+  quantitySold: number; // base units
+  revenue: number; // after bhaansi is excluded — line subtotals summed
+  cogs: number; // quantity × cost price (0 when no cost price set)
+};

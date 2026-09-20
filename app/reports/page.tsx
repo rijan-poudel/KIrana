@@ -23,7 +23,7 @@ import DateNav, { type ReportsView } from "./date-nav";
 import DaySummaryPrint, { type DaySummaryData } from "./day-summary-print";
 import RangeSummaryPrint, { type RangeSummaryData } from "./range-summary-print";
 import TransactionsTable from "./transactions-table";
-import type { RangeDayRow, ReportRowData, ProductCardData, CustomerOption } from "@/lib/types";
+import type { ProductSalesRow, RangeDayRow, ReportRowData, ProductCardData, CustomerOption } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -247,6 +247,40 @@ export default async function ReportsPage({
     }
   }
 
+  // "What sold" — per-product quantity and revenue across the range, with
+  // category subtotals. Costs give a rough per-product profit where set.
+  const productSales: ProductSalesRow[] = [];
+  const salesByProduct = new Map<string, ProductSalesRow>();
+  for (const t of sales) {
+    for (const item of t.items) {
+      let row = salesByProduct.get(item.productId);
+      if (!row) {
+        row = {
+          productId: item.productId,
+          name: item.product.name,
+          category: item.product.category || "General",
+          quantitySold: 0,
+          revenue: 0,
+          cogs: 0,
+        };
+        salesByProduct.set(item.productId, row);
+        productSales.push(row);
+      }
+      row.quantitySold = round2(row.quantitySold + item.quantity);
+      row.revenue = round2(row.revenue + item.subtotal);
+      row.cogs = round2(row.cogs + item.quantity * item.product.costPrice);
+    }
+  }
+  productSales.sort((x, y) => y.revenue - x.revenue);
+  const categorySales = [...new Set(productSales.map((p) => p.category))].map((category) => {
+    const inCat = productSales.filter((p) => p.category === category);
+    return {
+      category,
+      revenue: round2(inCat.reduce((sum, p) => sum + p.revenue, 0)),
+      quantitySold: round2(inCat.reduce((sum, p) => sum + p.quantitySold, 0)),
+    };
+  }).sort((x, y) => y.revenue - x.revenue);
+
   const rangeSummary: RangeSummaryData = {
     label: describeRange(view.mode === "range" ? view.fromKey : view.dateKey, view.mode === "range" ? view.toKey : view.dateKey),
     bills: sales.length,
@@ -446,6 +480,60 @@ export default async function ReportsPage({
               <p className="text-xs text-muted-foreground">No transactions were recorded in {rangeSummary.label}.</p>
             </div>
             <RangeSummaryPrint summary={rangeSummary} />
+          </div>
+        </section>
+      )}
+
+      {isRange && productSales.length > 0 && (
+        <section className="card mt-6 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-bold text-foreground">What sold</h2>
+              <p className="text-xs text-muted-foreground">
+                {productSales.length} product{productSales.length === 1 ? "" : "s"} moved in {rangeSummary.label} — sorted by revenue, to see what actually sells.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {categorySales.map((c) => (
+                <Badge key={c.category} variant="muted">
+                  {c.category}: {formatNPR(c.revenue)}
+                </Badge>
+              ))}
+            </div>
+          </div>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-left text-sm md:min-w-[560px]">
+              <thead>
+                <tr className="border-b border-border text-xs tracking-wide text-muted-foreground uppercase">
+                  <th className="py-2 pr-4 font-semibold">Product</th>
+                  <th className="py-2 pr-4 font-semibold">Category</th>
+                  <th className="py-2 pr-4 text-right font-semibold">Qty sold</th>
+                  <th className="py-2 pr-4 text-right font-semibold">Revenue</th>
+                  <th className="py-2 text-right font-semibold">Gross profit*</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productSales.slice(0, 25).map((p) => (
+                  <tr key={p.productId} className="border-b border-border/40 last:border-0">
+                    <td className="py-2 pr-4 font-semibold text-foreground">{p.name}</td>
+                    <td className="py-2 pr-4 text-muted-foreground">{p.category}</td>
+                    <td className="py-2 pr-4 text-right whitespace-nowrap">{formatQuantity(p.quantitySold)}</td>
+                    <td className="py-2 pr-4 text-right font-semibold whitespace-nowrap">{formatNPR(p.revenue)}</td>
+                    <td className="py-2 text-right whitespace-nowrap text-emerald-700">
+                      {p.cogs > 0 ? formatNPR(round2(p.revenue - p.cogs)) : <span className="text-muted-foreground">—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {productSales.length > 25 && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Showing the top 25 by revenue — {productSales.length - 25} more in the CSV export.
+              </p>
+            )}
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              *Gross profit needs cost prices set on products (Stock → Edit); “—” means the cost is unknown.
+            </p>
           </div>
         </section>
       )}
