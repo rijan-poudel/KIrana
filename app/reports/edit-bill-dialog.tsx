@@ -156,8 +156,12 @@ export default function EditBillDialog({
   const alreadyPaid = bill?.paidAmount ?? 0;
   const newPaid = Math.min(alreadyPaid, newTotal);
   const newDue = round2(newTotal - newPaid);
+  // A bigger bill with money already collected means the rest goes on khata —
+  // which needs a customer to owe it (the action enforces this; mirror it here
+  // so the shop hears it before the save fails).
+  const needsCustomerForDue = newDue > 0 && !customerId;
   const anyDraftInvalid =
-    lines.length === 0 || lines.some((l) => !Number.isFinite(l.quantity) || l.quantity <= 0 || l.rate < 0);
+    lines.length === 0 || needsCustomerForDue || lines.some((l) => !Number.isFinite(l.quantity) || l.quantity <= 0 || l.rate < 0);
   const overStockCount = lines.filter((l) => {
     const product = products.find((p) => p.id === l.productId);
     if (!product) return false;
@@ -201,6 +205,10 @@ export default function EditBillDialog({
 
   async function save() {
     if (!bill) return;
+    if (needsCustomerForDue) {
+      toast.error(`The corrected bill is ${formatNPR(newDue)} more than was paid — pick a customer so it goes on their khata.`);
+      return;
+    }
     if (anyDraftInvalid) {
       toast.error("Every line needs a quantity greater than zero.");
       return;
@@ -533,6 +541,11 @@ export default function EditBillDialog({
                 <p className="mt-2 rounded-lg bg-primary-foreground/10 px-2 py-1.5 text-[11px]">
                   The bill is now smaller than the {formatNPR(alreadyPaid)} already received — the{" "}
                   {formatNPR(alreadyPaid - newTotal)} difference was settled separately.
+                </p>
+              )}
+              {needsCustomerForDue && (
+                <p className="mt-2 rounded-lg bg-red-500/20 px-2 py-1.5 text-[11px] font-semibold">
+                  The bill grew by {formatNPR(newDue)} over what was already paid — pick a customer above so the difference sits on their khata, or lower the bill.
                 </p>
               )}
               {overStockCount > 0 && (

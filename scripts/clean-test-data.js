@@ -3,7 +3,7 @@
  * customer, and the test delivery log) so the shop starts with a clean khata.
  * Seeded products are kept. Run: node scripts/clean-test-data.js
  */
-const { PrismaClient } = require("/home/rizx/Projects/Milan Grocery/node_modules/@prisma/client");
+const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 async function main() {
